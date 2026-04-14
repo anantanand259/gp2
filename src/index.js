@@ -24,7 +24,7 @@ const ALLOWED_ORIGINS = [
 ];
 
 const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
+const OPENROUTER_MODEL = 'openrouter/elephant-alpha';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const EMBED_MODEL = 'text-embedding-004';
