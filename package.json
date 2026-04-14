@@ -1,0 +1,13 @@
+{
+  "name": "gpa-api-proxy",
+  "version": "1.0.0",
+  "description": "Secure API proxy for GPA website — hides Gemini API key server-side",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.82.2"
+  }
+}

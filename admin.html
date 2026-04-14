@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Portal — GPA Chatbot Knowledge Base</title>
+    <meta name="description" content="Admin portal for managing the GPA Chatbot RAG knowledge base.">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Font Awesome 6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        /* ─── VARIABLES ─── */
+        :root {
+            --primary-900: #0a1628;
+            --primary-800: #0f2039;
+            --primary-700: #142c4f;
+            --primary-600: #1a3a6b;
+            --primary-500: #1e4d8c;
+            --primary-400: #2563a8;
+            --primary-300: #3b82c4;
+            --primary-200: #6ba3d9;
+            --primary-100: #a3c7ec;
+            --primary-50: #dbeaf8;
+
+            --accent-600: #b8860b;
+            --accent-500: #d4a017;
+            --accent-400: #f0c040;
+            --accent-300: #f5d76e;
+            --accent-200: #fae9a0;
+            --accent-100: #fdf5d6;
+
+            --gray-900: #141a23;
+            --gray-800: #1e2736;
+            --gray-700: #2e3a4e;
+            --gray-600: #475569;
+            --gray-500: #64748b;
+            --gray-400: #94a3b8;
+            --gray-300: #cbd5e1;
+            --gray-200: #e2e8f0;
+            --gray-100: #f1f5f9;
+            --gray-50: #f8fafc;
+
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+
+            --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --radius-sm: 8px;
+            --radius-md: 14px;
+            --radius-lg: 18px;
+            --ease: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ─── RESET ─── */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-primary);
+            background: var(--gray-100);
+            color: var(--gray-800);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        ::selection { background: var(--primary-400); color: #fff; }
+
+        /* ─── ADMIN LAYOUT ─── */
+        .admin-header {
+            background: linear-gradient(135deg, var(--primary-900), var(--primary-700));
+            color: #fff;
+            padding: 20px 0;
+            border-bottom: 3px solid var(--accent-500);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .admin-header-inner {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .admin-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .admin-brand-icon {
+            width: 42px; height: 42px;
+            border-radius: var(--radius-sm);
+            background: linear-gradient(135deg, var(--accent-400), var(--accent-600));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+        }
+
+        .admin-brand h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        .admin-brand span {
+            font-size: 0.72rem;
+            opacity: 0.6;
+            display: block;
+        }
+
+        .admin-nav {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .admin-nav-btn {
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            font-family: var(--font-primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+            text-decoration: none;
+        }
+
+        .admin-nav-btn.primary {
+            background: linear-gradient(135deg, var(--accent-500), var(--accent-600));
+            color: #fff;
+        }
+
+        .admin-nav-btn.primary:hover {
+            box-shadow: 0 4px 14px rgba(212,160,23,0.3);
+            transform: translateY(-2px);
+        }
+
+        .admin-nav-btn.outline {
+            background: rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.8);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .admin-nav-btn.outline:hover {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+        }
+
+        /* ─── MAIN CONTENT ─── */
+        .admin-main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* ─── STATS CARDS ─── */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: #fff;
+            border-radius: var(--radius-md);
+            padding: 20px;
+            border: 1px solid var(--gray-200);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            transition: all 0.25s ease;
+        }
+
+        .stat-card:hover {
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            transform: translateY(-2px);
+        }
+
+        .stat-card-icon {
+            width: 48px; height: 48px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .stat-card-icon.blue { background: var(--primary-50); color: var(--primary-500); }
+        .stat-card-icon.gold { background: var(--accent-100); color: var(--accent-600); }
+        .stat-card-icon.green { background: #dcfce7; color: var(--success); }
+        .stat-card-icon.purple { background: #ede9fe; color: #7c3aed; }
+
+        .stat-card-value {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary-900);
+            line-height: 1;
+        }
+
+        .stat-card-label {
+            font-size: 0.76rem;
+            color: var(--gray-500);
+            margin-top: 2px;
+        }
+
+        /* ─── SECTIONS ─── */
+        .admin-section {
+            background: #fff;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--gray-200);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .admin-section-header {
+            padding: 20px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--gray-200);
+            background: var(--gray-50);
+        }
+
+        .admin-section-header h2 {
+            font-size: 1.05rem;
+            color: var(--primary-900);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .admin-section-header h2 i {
+            color: var(--primary-400);
+        }
+
+        .admin-section-body {
+            padding: 24px;
+        }
+
+        /* ─── FORM ─── */
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 18px;
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.86rem;
+            font-weight: 600;
+            color: var(--gray-700);
+            margin-bottom: 6px;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 11px 14px;
+            border: 2px solid var(--gray-200);
+            border-radius: var(--radius-sm);
+            font-family: var(--font-primary);
+            font-size: 0.88rem;
+            color: var(--gray-800);
+            transition: all 0.25s ease;
+            background: var(--gray-50);
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--primary-400);
+            box-shadow: 0 0 0 4px rgba(30,77,140,0.06);
+            background: #fff;
+        }
+
+        .form-group textarea {
+            min-height: 180px;
+            resize: vertical;
+            line-height: 1.7;
+        }
+
+        .form-group input::placeholder,
+        .form-group textarea::placeholder {
+            color: var(--gray-400);
+        }
+
+        .form-hint {
+            font-size: 0.74rem;
+            color: var(--gray-400);
+            margin-top: 4px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 22px;
+            border-radius: var(--radius-sm);
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.25s ease;
+            font-family: var(--font-primary);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-600), var(--primary-500));
+            color: #fff;
+        }
+        .btn-primary:hover { box-shadow: 0 4px 14px rgba(30,77,140,0.25); transform: translateY(-2px); }
+
+        .btn-gold {
+            background: linear-gradient(135deg, var(--accent-500), var(--accent-600));
+            color: #fff;
+        }
+        .btn-gold:hover { box-shadow: 0 4px 14px rgba(212,160,23,0.3); transform: translateY(-2px); }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            color: #fff;
+        }
+        .btn-danger:hover { box-shadow: 0 4px 14px rgba(220,38,38,0.25); transform: translateY(-2px); }
+
+        .btn-outline {
+            background: transparent;
+            border: 2px solid var(--gray-300);
+            color: var(--gray-600);
+        }
+        .btn-outline:hover { border-color: var(--primary-400); color: var(--primary-600); }
+
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 0.78rem;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* ─── ENTRIES LIST ─── */
+        .entries-empty {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--gray-400);
+        }
+
+        .entries-empty i {
+            font-size: 2.5rem;
+            margin-bottom: 14px;
+            display: block;
+            opacity: 0.4;
+        }
+
+        .entries-empty p {
+            font-size: 0.92rem;
+        }
+
+        .entry-card {
+            border: 1px solid var(--gray-200);
+            border-radius: var(--radius-md);
+            padding: 18px 20px;
+            margin-bottom: 14px;
+            transition: all 0.25s ease;
+            background: var(--gray-50);
+        }
+
+        .entry-card:hover {
+            border-color: var(--primary-200);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        }
+
+        .entry-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .entry-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--primary-900);
+        }
+
+        .entry-meta {
+            font-size: 0.74rem;
+            color: var(--gray-500);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .entry-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .entry-preview {
+            font-size: 0.85rem;
+            color: var(--gray-600);
+            line-height: 1.65;
+            max-height: 80px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .entry-preview::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background: linear-gradient(to bottom, transparent, var(--gray-50));
+        }
+
+        .entry-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        /* ─── ALERT / TOAST ─── */
+        .admin-alert {
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 0.88rem;
+            font-weight: 500;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .admin-alert.success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .admin-alert.danger { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+        .admin-alert.info { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+        .admin-alert.warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+        /* ─── IMPORT/EXPORT ─── */
+        .io-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .io-card {
+            background: var(--gray-50);
+            border-radius: var(--radius-sm);
+            padding: 20px;
+            border: 1px solid var(--gray-200);
+            text-align: center;
+        }
+
+        .io-card h4 {
+            font-size: 0.92rem;
+            color: var(--primary-900);
+            margin-bottom: 8px;
+        }
+
+        .io-card p {
+            font-size: 0.8rem;
+            color: var(--gray-500);
+            margin-bottom: 14px;
+        }
+
+        /* Hidden file input */
+        .file-input-hidden { display: none; }
+
+        /* ─── LOADING OVERLAY ─── */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 22, 40, 0.6);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            color: #fff;
+            backdrop-filter: blur(4px);
+        }
+
+        .loading-overlay.show { display: flex; }
+
+        .loading-spinner {
+            width: 44px; height: 44px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top-color: var(--accent-400);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-text {
+            font-size: 0.88rem;
+            font-weight: 500;
+        }
+
+        /* ─── RESPONSIVE ─── */
+        @media (max-width: 768px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .io-section { grid-template-columns: 1fr; }
+            .admin-header-inner { flex-direction: column; text-align: center; }
+            .admin-nav { width: 100%; justify-content: center; }
+        }
+
+        @media (max-width: 480px) {
+            .stats-row { grid-template-columns: 1fr; }
+            .admin-section-body { padding: 16px; }
+            .entry-header { flex-direction: column; }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText">Processing...</div>
+    </div>
+
+    <!-- Header -->
+    <header class="admin-header">
+        <div class="admin-header-inner">
+            <div class="admin-brand">
+                <div class="admin-brand-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div>
+                    <h1>GPA Chatbot Admin</h1>
+                    <span>Knowledge Base Management Portal</span>
+                </div>
+            </div>
+            <nav class="admin-nav">
+                <a href="index.html" class="admin-nav-btn outline">
+                    <i class="fas fa-arrow-left"></i> Back to Website
+                </a>
+                <button class="admin-nav-btn outline" onclick="testProxyConnection()">
+                    <i class="fas fa-shield-halved"></i> Test Proxy
+                </button>
+                <button class="admin-nav-btn primary" onclick="showAddForm()">
+                    <i class="fas fa-plus"></i> Add Context
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="admin-main">
+
+        <!-- Alert Container -->
+        <div id="alertContainer"></div>
+
+        <!-- Proxy status is shown via alerts, no persistent section needed -->
+
+        <!-- Stats Row -->
+        <div class="stats-row" id="statsRow">
+            <div class="stat-card">
+                <div class="stat-card-icon blue"><i class="fas fa-file-lines"></i></div>
+                <div>
+                    <div class="stat-card-value" id="statEntries">0</div>
+                    <div class="stat-card-label">Knowledge Entries</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon gold"><i class="fas fa-puzzle-piece"></i></div>
+                <div>
+                    <div class="stat-card-value" id="statChunks">0</div>
+                    <div class="stat-card-label">Text Chunks</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon green"><i class="fas fa-brain"></i></div>
+                <div>
+                    <div class="stat-card-value" id="statEmbedded">0</div>
+                    <div class="stat-card-label">Embedded Chunks</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon purple"><i class="fas fa-database"></i></div>
+                <div>
+                    <div class="stat-card-value" id="statStorage">0 KB</div>
+                    <div class="stat-card-label">Storage Used</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add/Edit Form -->
+        <div class="admin-section" id="addFormSection" style="display: none;">
+            <div class="admin-section-header">
+                <h2><i class="fas fa-plus-circle"></i> <span id="formTitle">Add New Context</span></h2>
+                <button class="btn btn-outline btn-sm" onclick="hideAddForm()">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+            </div>
+            <div class="admin-section-body">
+                <input type="hidden" id="editEntryId" value="">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="entryTitle">Title / Topic</label>
+                        <input type="text" id="entryTitle" placeholder="e.g., CSE Department Syllabus, Placement Drive Details, Hostel Rules">
+                        <p class="form-hint">A descriptive title helps the RAG system categorize the content better</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="entryContent">Content</label>
+                        <textarea id="entryContent" placeholder="Paste the full content here. This could be syllabus details, notice text, placement information, rules, FAQs, or any other relevant information about the college..."></textarea>
+                        <p class="form-hint">The content will be automatically split into optimized chunks for retrieval. More detailed content = better answers.</p>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-gold" id="saveEntryBtn" onclick="saveEntry()">
+                        <i class="fas fa-save"></i> Save & Process
+                    </button>
+                    <button class="btn btn-outline" onclick="hideAddForm()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Knowledge Base Entries -->
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h2><i class="fas fa-book-open"></i> Knowledge Base Entries</h2>
+                <div class="btn-group">
+                    <button class="btn btn-outline btn-sm" onclick="refreshEntries()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="admin-section-body" id="entriesContainer">
+                <!-- Filled dynamically -->
+            </div>
+        </div>
+
+        <!-- Import / Export -->
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h2><i class="fas fa-file-import"></i> Import / Export</h2>
+            </div>
+            <div class="admin-section-body">
+                <div class="io-section">
+                    <div class="io-card">
+                        <h4><i class="fas fa-download"></i> Export</h4>
+                        <p>Download your knowledge base as a JSON file for backup.</p>
+                        <button class="btn btn-primary btn-sm" onclick="exportKB()">
+                            <i class="fas fa-download"></i> Export JSON
+                        </button>
+                    </div>
+                    <div class="io-card">
+                        <h4><i class="fas fa-upload"></i> Import</h4>
+                        <p>Import a previously exported knowledge base JSON file.</p>
+                        <input type="file" id="importFileInput" accept=".json" class="file-input-hidden" onchange="importKB(event)">
+                        <button class="btn btn-primary btn-sm" onclick="document.getElementById('importFileInput').click()">
+                            <i class="fas fa-upload"></i> Import JSON
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="admin-section" style="border-color: #fca5a5;">
+            <div class="admin-section-header" style="background: #fff5f5;">
+                <h2 style="color: #991b1b;"><i class="fas fa-exclamation-triangle"></i> Danger Zone</h2>
+            </div>
+            <div class="admin-section-body">
+                <p style="font-size: 0.88rem; color: var(--gray-600); margin-bottom: 14px;">
+                    Permanently delete all knowledge base entries and chunks. This action cannot be undone.
+                </p>
+                <button class="btn btn-danger btn-sm" onclick="clearAllData()">
+                    <i class="fas fa-trash-alt"></i> Clear All Data
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- ─── SCRIPTS ─── -->
+    <script>
+        'use strict';
+
+        // ── Configuration ──
+        const STORAGE_KEY_KB = 'gpa_chatbot_kb';
+        const GEMINI_API_KEY = 'AIzaSyBCtmG0RF5I3OgMS5-dAQwgUmCYTFR90gw';
+        const EMBED_MODEL = 'text-embedding-004';
+        const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+        const CHUNK_SIZE = 500;
+        const CHUNK_OVERLAP = 80;
+        const MAX_RETRIES = 3;
+        const RETRY_BASE_DELAY = 2000;
+
+        // ── Init ──
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshEntries();
+            updateStats();
+        });
+
+        // ── Alert ──
+        function showAlert(msg, type = 'info') {
+            const container = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `admin-alert ${type}`;
+            const icons = { success: 'check-circle', danger: 'exclamation-circle', info: 'info-circle', warning: 'exclamation-triangle' };
+            alert.innerHTML = `<i class="fas fa-${icons[type] || 'info-circle'}"></i> ${msg}`;
+            container.prepend(alert);
+
+            setTimeout(() => {
+                alert.style.opacity = '0';
+                alert.style.transform = 'translateY(-10px)';
+                alert.style.transition = 'all 0.3s ease';
+                setTimeout(() => alert.remove(), 300);
+            }, 5000);
+        }
+
+        // ── Loading ──
+        function showLoading(text = 'Processing...') {
+            document.getElementById('loadingText').textContent = text;
+            document.getElementById('loadingOverlay').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('show');
+        }
+
+        // ── Proxy Connection Test ──
+        async function testProxyConnection() {
+            showLoading('Testing proxy connection...');
+
+            try {
+                const res = await fetch(`${PROXY_URL}/api/health`);
+                const data = await res.json();
+
+                if (res.ok && data.status === 'ok') {
+                    showAlert('✅ Proxy is connected and working! API key is secured server-side.', 'success');
+                } else {
+                    showAlert(`Proxy responded but returned: ${JSON.stringify(data)}`, 'warning');
+                }
+            } catch (e) {
+                showAlert(`❌ Cannot reach proxy: ${e.message}. Check your PROXY_URL configuration.`, 'danger');
+            }
+
+            hideLoading();
+        }
+
+        // ── Knowledge Base Operations ──
+        function getKB() {
+            try {
+                return JSON.parse(localStorage.getItem(STORAGE_KEY_KB) || '{"entries":[],"chunks":[]}');
+            } catch {
+                return { entries: [], chunks: [] };
+            }
+        }
+
+        function saveKB(kb) {
+            localStorage.setItem(STORAGE_KEY_KB, JSON.stringify(kb));
+        }
+
+        // ── Form ──
+        function showAddForm(entryId) {
+            document.getElementById('addFormSection').style.display = 'block';
+            document.getElementById('addFormSection').scrollIntoView({ behavior: 'smooth' });
+
+            if (entryId) {
+                const kb = getKB();
+                const entry = kb.entries.find(e => e.id === entryId);
+                if (entry) {
+                    document.getElementById('editEntryId').value = entry.id;
+                    document.getElementById('entryTitle').value = entry.title;
+                    document.getElementById('entryContent').value = entry.content;
+                    document.getElementById('formTitle').textContent = 'Edit Context';
+                }
+            } else {
+                document.getElementById('editEntryId').value = '';
+                document.getElementById('entryTitle').value = '';
+                document.getElementById('entryContent').value = '';
+                document.getElementById('formTitle').textContent = 'Add New Context';
+            }
+        }
+
+        function hideAddForm() {
+            document.getElementById('addFormSection').style.display = 'none';
+            document.getElementById('editEntryId').value = '';
+            document.getElementById('entryTitle').value = '';
+            document.getElementById('entryContent').value = '';
+        }
+
+        // ── Save Entry ──
+        async function saveEntry() {
+            const title = document.getElementById('entryTitle').value.trim();
+            const content = document.getElementById('entryContent').value.trim();
+            const editId = document.getElementById('editEntryId').value;
+
+            if (!title) {
+                showAlert('Please enter a title.', 'danger');
+                return;
+            }
+            if (!content) {
+                showAlert('Please enter content.', 'danger');
+                return;
+            }
+
+            showLoading('Chunking text & generating embeddings...');
+
+            try {
+                const kb = getKB();
+
+                // If editing, remove old entry
+                if (editId) {
+                    kb.entries = kb.entries.filter(e => e.id !== editId);
+                    kb.chunks = kb.chunks.filter(c => c.entryId !== editId);
+                }
+
+                const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+                const entry = { id, title, content, createdAt: new Date().toISOString() };
+
+                // Chunk content
+                const chunks = chunkText(content, CHUNK_SIZE, CHUNK_OVERLAP);
+
+                // Generate embeddings via proxy
+                const embeddedChunks = [];
+                for (let i = 0; i < chunks.length; i++) {
+                    const contextualChunk = `${title}: ${chunks[i]}`;
+                    let embedding = null;
+
+                    try {
+                        document.getElementById('loadingText').textContent =
+                            `Embedding chunk ${i + 1} of ${chunks.length}...`;
+                        embedding = await getEmbedding(contextualChunk);
+                    } catch (e) {
+                        console.warn('Embedding failed for chunk', i, e);
+                    }
+
+                    embeddedChunks.push({ entryId: id, text: contextualChunk, embedding });
+                }
+
+                kb.entries.push(entry);
+                kb.chunks.push(...embeddedChunks);
+                saveKB(kb);
+
+                hideAddForm();
+                refreshEntries();
+                updateStats();
+                showAlert(`Entry "${title}" saved with ${embeddedChunks.length} chunks!`, 'success');
+            } catch (e) {
+                showAlert(`Error saving entry: ${e.message}`, 'danger');
+            }
+
+            hideLoading();
+        }
+
+        // ── Delete Entry ──
+        function deleteEntry(entryId) {
+            if (!confirm('Are you sure you want to delete this entry?')) return;
+
+            const kb = getKB();
+            const entry = kb.entries.find(e => e.id === entryId);
+            kb.entries = kb.entries.filter(e => e.id !== entryId);
+            kb.chunks = kb.chunks.filter(c => c.entryId !== entryId);
+            saveKB(kb);
+            refreshEntries();
+            updateStats();
+            showAlert(`Entry "${entry?.title || ''}" deleted.`, 'success');
+        }
+
+        // ── Render Entries ──
+        function refreshEntries() {
+            const container = document.getElementById('entriesContainer');
+            const kb = getKB();
+
+            if (kb.entries.length === 0) {
+                container.innerHTML = `
+                    <div class="entries-empty">
+                        <i class="fas fa-folder-open"></i>
+                        <p>No knowledge base entries yet. Click <strong>"Add Context"</strong> to get started.</p>
+                    </div>`;
+                return;
+            }
+
+            // Sort by date, newest first
+            const sorted = [...kb.entries].sort((a, b) =>
+                new Date(b.createdAt) - new Date(a.createdAt)
+            );
+
+            container.innerHTML = sorted.map(entry => {
+                const chunkCount = kb.chunks.filter(c => c.entryId === entry.id).length;
+                const embeddedCount = kb.chunks.filter(c => c.entryId === entry.id && c.embedding !== null).length;
+                const date = new Date(entry.createdAt).toLocaleDateString('en-IN', {
+                    day: 'numeric', month: 'short', year: 'numeric'
+                });
+                const preview = entry.content.substring(0, 220) + (entry.content.length > 220 ? '...' : '');
+
+                return `
+                    <div class="entry-card">
+                        <div class="entry-header">
+                            <div class="entry-title">${escapeHtml(entry.title)}</div>
+                        </div>
+                        <div class="entry-meta">
+                            <span><i class="fas fa-calendar"></i> ${date}</span>
+                            <span><i class="fas fa-puzzle-piece"></i> ${chunkCount} chunks</span>
+                            <span><i class="fas fa-brain"></i> ${embeddedCount} embedded</span>
+                        </div>
+                        <div class="entry-preview">${escapeHtml(preview)}</div>
+                        <div class="entry-actions">
+                            <button class="btn btn-outline btn-sm" onclick="showAddForm('${entry.id}')">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteEntry('${entry.id}')">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                            <button class="btn btn-outline btn-sm" onclick="reembedEntry('${entry.id}')">
+                                <i class="fas fa-sync"></i> Re-embed
+                            </button>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        // ── Re-embed Entry ──
+        async function reembedEntry(entryId) {
+            showLoading('Re-generating embeddings...');
+
+            try {
+                const kb = getKB();
+                const entry = kb.entries.find(e => e.id === entryId);
+                if (!entry) throw new Error('Entry not found');
+
+                // Remove old chunks
+                kb.chunks = kb.chunks.filter(c => c.entryId !== entryId);
+
+                // Re-chunk and re-embed
+                const chunks = chunkText(entry.content, CHUNK_SIZE, CHUNK_OVERLAP);
+
+                for (let i = 0; i < chunks.length; i++) {
+                    const contextualChunk = `${entry.title}: ${chunks[i]}`;
+                    let embedding = null;
+
+                    try {
+                        document.getElementById('loadingText').textContent =
+                            `Embedding chunk ${i + 1} of ${chunks.length}...`;
+                        embedding = await getEmbedding(contextualChunk);
+                    } catch (e) {
+                        console.warn('Embedding failed:', e);
+                    }
+
+                    kb.chunks.push({ entryId, text: contextualChunk, embedding });
+                }
+
+                saveKB(kb);
+                refreshEntries();
+                updateStats();
+                showAlert(`Re-embedded ${chunks.length} chunks for "${entry.title}".`, 'success');
+            } catch (e) {
+                showAlert(`Error: ${e.message}`, 'danger');
+            }
+
+            hideLoading();
+        }
+
+        // ── Update Stats ──
+        function updateStats() {
+            const kb = getKB();
+            const storageBytes = new Blob([JSON.stringify(kb)]).size;
+
+            document.getElementById('statEntries').textContent = kb.entries.length;
+            document.getElementById('statChunks').textContent = kb.chunks.length;
+            document.getElementById('statEmbedded').textContent =
+                kb.chunks.filter(c => c.embedding !== null).length;
+
+            if (storageBytes > 1024 * 1024) {
+                document.getElementById('statStorage').textContent =
+                    (storageBytes / (1024 * 1024)).toFixed(1) + ' MB';
+            } else {
+                document.getElementById('statStorage').textContent =
+                    Math.round(storageBytes / 1024) + ' KB';
+            }
+        }
+
+        // ── Import / Export ──
+        function exportKB() {
+            const kb = getKB();
+            if (kb.entries.length === 0) {
+                showAlert('Nothing to export.', 'warning');
+                return;
+            }
+            const json = JSON.stringify(kb, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `gpa-chatbot-kb-${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showAlert('Knowledge base exported!', 'success');
+        }
+
+        function importKB(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (!data.entries || !data.chunks) {
+                        throw new Error('Invalid format');
+                    }
+
+                    if (!confirm(`Import ${data.entries.length} entries and ${data.chunks.length} chunks? This will REPLACE all existing data.`)) {
+                        return;
+                    }
+
+                    saveKB(data);
+                    refreshEntries();
+                    updateStats();
+                    showAlert(`Imported ${data.entries.length} entries successfully!`, 'success');
+                } catch (err) {
+                    showAlert(`Import failed: ${err.message}`, 'danger');
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        // ── Clear All ──
+        function clearAllData() {
+            if (!confirm('⚠️ This will permanently delete ALL knowledge base data. Are you sure?')) return;
+            if (!confirm('This action CANNOT be undone. Type "DELETE" and click OK to confirm.')) return;
+
+            localStorage.removeItem(STORAGE_KEY_KB);
+            refreshEntries();
+            updateStats();
+            showAlert('All data cleared.', 'success');
+        }
+
+        // ── Utility: Chunk Text ──
+        function chunkText(text, chunkSize, overlap) {
+            if (!text || text.length <= chunkSize) return [text];
+
+            const chunks = [];
+            const sentences = text.split(/(?<=[.!?])\s+/);
+            let currentChunk = '';
+
+            for (const sentence of sentences) {
+                if (currentChunk.length + sentence.length > chunkSize && currentChunk.length > 0) {
+                    chunks.push(currentChunk.trim());
+                    const words = currentChunk.split(' ');
+                    const overlapWords = Math.ceil(overlap / 5);
+                    currentChunk = words.slice(-overlapWords).join(' ') + ' ' + sentence;
+                } else {
+                    currentChunk += (currentChunk ? ' ' : '') + sentence;
+                }
+            }
+
+            if (currentChunk.trim()) {
+                chunks.push(currentChunk.trim());
+            }
+
+            return chunks;
+        }
+
+        // ── Utility: Get Embedding (with retry + backoff) ──
+        async function getEmbedding(text) {
+            const url = `${GEMINI_BASE}/${EMBED_MODEL}:embedContent?key=${GEMINI_API_KEY}`;
+
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: `models/${EMBED_MODEL}`,
+                        content: { parts: [{ text: text.substring(0, 2048) }] }
+                    })
+                });
+
+                if (res.status === 429 && attempt < MAX_RETRIES - 1) {
+                    const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
+                    console.warn(`Embedding rate limited, retry ${attempt + 1} in ${delay}ms`);
+                    await new Promise(r => setTimeout(r, delay));
+                    continue;
+                }
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData?.error?.message || `Embedding API error: ${res.status}`);
+                }
+
+                const data = await res.json();
+                return data.embedding?.values || [];
+            }
+
+            throw new Error('Embedding failed after retries');
+        }
+
+        // ── Utility: Escape HTML ──
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+
+</body>
+</html>
