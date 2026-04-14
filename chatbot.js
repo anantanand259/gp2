@@ -25,7 +25,7 @@ const CHATBOT_CONFIG = {
     // └──────────────────────────────────────────────────────┘
     API_PROXY_URL: 'https://gpa-api-proxy.anantanand259.workers.dev',
     // Primary model (OpenRouter – Qwen, free tier)
-    OPENROUTER_MODEL: 'openai/gpt-oss-120b:free',
+    OPENROUTER_MODEL: 'openrouter/elephant-alpha',
 
     // Fallback Gemini models: tried in order if Qwen fails
     GEMINI_MODELS: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite'],
