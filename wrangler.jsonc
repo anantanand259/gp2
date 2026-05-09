@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "gpa-final",
+  "name": "gp2",
   "main": "src/index.js",
   "compatibility_date": "2026-04-14",
   "observability": {
