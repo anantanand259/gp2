@@ -1,0 +1,10 @@
+name = "gpa-api-proxy"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+
+# ── Required Secrets (set via wrangler CLI, NEVER commit to code) ──
+# wrangler secret put OPENROUTER_API_KEY   ← For chat (Qwen 2.5 14B)
+# wrangler secret put GEMINI_API_KEY       ← For embeddings (text-embedding-004)
+
+[observability]
+enabled = true
