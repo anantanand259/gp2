@@ -24,6 +24,15 @@ from typing import List, Optional
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from dotenv import load_dotenv
+try:
+    from pyngrok import ngrok, conf
+    NGROK_SUPPORT = True
+except ImportError:
+    NGROK_SUPPORT = False
+
+# Load environment variables from .env file in parent directory
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 # ─────────────────────────────────────────────────────────────
 # CONFIGURATION
@@ -32,12 +41,25 @@ from flask_cors import CORS
 # ┌──────────────────────────────────────────────────────────┐
 # │  🔑  Place your Gemini API Key here or set env var       │
 # └──────────────────────────────────────────────────────────┘
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', 'AIzaSyB3VfdenK3ejp9EmEJdQLx7lw8NLkMQ590')
-OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'YOUR_GOOGLE_KEY_HERE')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', 'YOUR_OPENROUTER_KEY_HERE')
 OPENROUTER_MODEL = 'meta-llama/llama-3.3-70b-instruct'
+NGROK_AUTH_TOKEN = os.getenv('NGROK_AUTH_TOKEN', 'YOUR_NGROK_AUTH_TOKEN')
 
-# Paths — relative to this script
-BASE_DIR       = Path(__file__).parent
+# ┌──────────────────────────────────────────────────────────┐
+# │  📂  STORAGE CONFIGURATION                               │
+# └──────────────────────────────────────────────────────────┘
+# If you use Google Drive for Desktop, set this to your Drive path.
+# Example: 'G:/My Drive/GPA_Knowledge_Base'
+DRIVE_PATH = os.environ.get('GOOGLE_DRIVE_PATH')
+
+if DRIVE_PATH:
+    BASE_DIR = Path(DRIVE_PATH)
+    log.info(f'📁 Using Google Drive storage: {BASE_DIR}')
+else:
+    BASE_DIR = Path(__file__).parent
+    log.info(f'📁 Using local storage: {BASE_DIR}')
+
 KB_DIR         = BASE_DIR / 'knowledge_base'
 INPUT_DIR      = KB_DIR / 'input_docs'
 PROCESSED_DIR  = KB_DIR / 'processed_docs'
@@ -76,13 +98,7 @@ log = logging.getLogger('GPA-RAG')
 for d in [INPUT_DIR, PROCESSED_DIR, CHROMA_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-# ─────────────────────────────────────────────────────────────
-# SET API KEY
-# ─────────────────────────────────────────────────────────────
-if GOOGLE_API_KEY == 'YOUR_GOOGLE_API_KEY_HERE':
-    log.warning('⚠️  GOOGLE_API_KEY not set! Set it via environment variable or edit server.py line 35.')
-    log.warning('   Example: set GOOGLE_API_KEY=AIzaSy...')
-
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', 'AIzaSyB3VfdenK3ejp9EmEJdQLx7lw8NLkMQ590')
 os.environ['GOOGLE_API_KEY'] = GOOGLE_API_KEY
 
 # ─────────────────────────────────────────────────────────────
@@ -279,9 +295,9 @@ log.info('✅ Chunking module ready.')
 # ─────────────────────────────────────────────────────────────
 from langchain_huggingface import HuggingFaceEmbeddings
 
-log.info('⏳ Loading embedding model (first run downloads ~80MB)...')
+log.info('⏳ Loading BAAI/bge-m3 embedding model (multilingual support)...')
 embedding_model = HuggingFaceEmbeddings(
-    model_name='all-MiniLM-L6-v2',
+    model_name='BAAI/bge-m3',
     model_kwargs={'device': 'cpu'},
     encode_kwargs={'normalize_embeddings': True}
 )
@@ -433,8 +449,37 @@ def generate_rag_answer(user_query: str) -> dict:
     retrieved_docs = hybrid_retriever.invoke(user_query)
 
     if not retrieved_docs:
+        log.info('ℹ️ No context found in KB, falling back to Internet (OpenRouter)...')
+        try:
+            # General knowledge fallback
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://gpa.ac.in",
+                "X-Title": "GPA Assistant RAG",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {"role": "system", "content": "You are a helpful assistant. If the user asks about Government Polytechnic Adityapur (GPA), give general information. For other queries, answer normally using your general knowledge."},
+                    {"role": "user", "content": user_query}
+                ],
+                "temperature": 0.7
+            }
+            response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=20)
+            if response.status_code == 200:
+                answer_text = response.json()['choices'][0]['message']['content']
+                return {
+                    'answer': answer_text,
+                    'sources': [],
+                    'chunk_count': 0,
+                    'source_type': 'internet'
+                }
+        except Exception as e:
+            log.warning(f'⚠️ Internet fallback failed: {e}')
+
         return {
-            'answer': 'This specific information is not available in our knowledge base. Please contact the college directly or visit [gpa.ac.in](https://www.gpa.ac.in).',
+            'answer': 'This specific information is not available in our knowledge base and I could not reach the internet for an answer. Please contact the college directly or visit [gpa.ac.in](https://www.gpa.ac.in).',
             'sources': [],
             'chunk_count': 0,
             'source_type': 'none'
@@ -651,23 +696,39 @@ def add_text_entry():
 # ─────────────────────────────────────────────────────────────
 # START SERVER
 # ─────────────────────────────────────────────────────────────
-if __name__ == '__main__':
+    # Start ngrok tunnel if token is provided
+    public_url = None
+    if NGROK_SUPPORT and NGROK_AUTH_TOKEN and NGROK_AUTH_TOKEN != 'YOUR_NGROK_AUTH_TOKEN':
+        try:
+            conf.get_default().auth_token = NGROK_AUTH_TOKEN
+            ngrok.kill()
+            public_url = ngrok.connect(PORT).public_url
+            log.info(f'🌐 Ngrok tunnel LIVE: {public_url}')
+        except Exception as e:
+            log.error(f'❌ Ngrok failed to start: {e}')
+
     print()
     print('=' * 62)
     print('  GPA RAG Backend - Production Server')
     print('=' * 62)
-    print(f'  URL         : http://localhost:{PORT}')
+    print(f'  Local URL   : http://localhost:{PORT}')
+    if public_url:
+        print(f'  Public URL  : {public_url}')
     print(f'  Input docs  : {INPUT_DIR}')
     print(f'  ChromaDB    : {CHROMA_DIR}')
     print(f'  Total chunks: {len(load_bm25_docs())}')
     print(f'  Total files : {len(load_processed_log())}')
     print()
+    if public_url:
+        print('  📋 PASTE INTO chatbot.js & admin.html:')
+        print(f'     RAG_BACKEND_URL: \'{public_url}\'')
+        print()
     print('  Endpoints:')
-    print(f'    GET  http://localhost:{PORT}/api/health')
-    print(f'    GET  http://localhost:{PORT}/api/rag/stats')
-    print(f'    POST http://localhost:{PORT}/api/rag/query')
-    print(f'    POST http://localhost:{PORT}/api/rag/ingest')
-    print(f'    POST http://localhost:{PORT}/api/rag/add-text')
+    print(f'    GET  /api/health')
+    print(f'    GET  /api/rag/stats')
+    print(f'    POST /api/rag/query')
+    print(f'    POST /api/rag/ingest')
+    print(f'    POST /api/rag/add-text')
     print('=' * 62)
     print()
 
