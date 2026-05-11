@@ -700,11 +700,8 @@
                 <a href="index.html" class="admin-nav-btn outline">
                     <i class="fas fa-arrow-left"></i> Back to Website
                 </a>
-                <a href="https://drive.google.com/drive/my-drive" target="_blank" class="admin-nav-btn outline" title="Connect Google Drive for Desktop to sync your knowledge_base folder to see files here">
-                    <i class="fab fa-google-drive" style="color: #34a853;"></i> Drive Sync
-                </a>
-                <button class="admin-nav-btn outline" onclick="testProxyConnection()">
-                    <i class="fas fa-shield-halved"></i> Test Proxy
+                <button class="admin-nav-btn outline" onclick="toggleBackendSettings()">
+                    <i class="fas fa-server"></i> Backend Settings
                 </button>
                 <button class="admin-nav-btn primary" onclick="showAddForm()">
                     <i class="fas fa-plus"></i> Add Context
@@ -712,6 +709,27 @@
             </nav>
         </div>
     </header>
+    
+    <!-- Backend Settings Panel (Hidden by default) -->
+    <div id="backendSettingsPanel" style="display: none; background: #fff; border-bottom: 1px solid var(--gray-200); padding: 16px 0; animation: slideDown 0.3s ease;">
+        <div style="max-width: 1100px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <div class="form-group" style="margin-bottom: 0; flex-grow: 1;">
+                <label style="font-size: 0.75rem; margin-bottom: 2px;">RAG Backend URL (Local or Tunnel)</label>
+                <input type="text" id="backendUrlInput" value="http://localhost:5000" style="padding: 6px 12px; font-size: 0.82rem;">
+            </div>
+            <div class="btn-group" style="margin-top: 18px;">
+                <button class="btn btn-primary btn-sm" onclick="saveBackendUrl()">Update URL</button>
+                <button class="btn btn-outline btn-sm" onclick="testBackendHealth()">Test Connection</button>
+            </div>
+            <p style="font-size: 0.7rem; color: var(--gray-500); width: 100%;">
+                <i class="fas fa-info-circle"></i> If your website is on <b>HTTPS</b>, you MUST use an <b>HTTPS tunnel</b> (like ngrok or Cloudflare Tunnel) to connect to your local backend.
+            </p>
+        </div>
+    </div>
+    
+    <style>
+        @keyframes slideDown { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
 
     <!-- Main Content -->
     <main class="admin-main">
@@ -846,15 +864,58 @@
         'use strict';
 
         // ── Configuration ──
-        const RAG_BACKEND_URL = 'http://localhost:5000';
+        let RAG_BACKEND_URL = localStorage.getItem('gpa_rag_url') || 'http://localhost:5000';
+        const PROXY_URL = 'https://gp2.anantanand259.workers.dev';
         const STORAGE_KEY_KB = 'gpa_chatbot_kb';
-        const GEMINI_API_KEY = 'AIzaSyBAXc200Fys4wqG9CumzEXz4hb7ul27RI4';
 
         // ── Init ──
         document.addEventListener('DOMContentLoaded', () => {
+            if (document.getElementById('backendUrlInput')) {
+                document.getElementById('backendUrlInput').value = RAG_BACKEND_URL;
+            }
             refreshEntries();
             updateStats();
+            testBackendHealth(true); // Silent test
         });
+
+        function toggleBackendSettings() {
+            const panel = document.getElementById('backendSettingsPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function saveBackendUrl() {
+            const newUrl = document.getElementById('backendUrlInput').value.trim().replace(/\/$/, '');
+            if (!newUrl) return;
+            RAG_BACKEND_URL = newUrl;
+            localStorage.setItem('gpa_rag_url', newUrl);
+            showAlert('Backend URL updated!', 'success');
+            testBackendHealth();
+        }
+
+        async function testBackendHealth(silent = false) {
+            if (!silent) showLoading('Testing backend connection...');
+            try {
+                const res = await fetch(`${RAG_BACKEND_URL}/api/health`, { mode: 'cors' });
+                const data = await res.json();
+                if (res.ok) {
+                    if (!silent) showAlert(`✅ Connected to RAG Backend! (v${data.version})`, 'success');
+                    console.log('Backend connected:', data);
+                } else {
+                    if (!silent) showAlert(`Backend reached but error: ${data.error || res.status}`, 'warning');
+                }
+            } catch (e) {
+                if (!silent) {
+                    let msg = `❌ Cannot reach backend at ${RAG_BACKEND_URL}. `;
+                    if (window.location.protocol === 'https:' && RAG_BACKEND_URL.startsWith('http:')) {
+                        msg += '<b>Mixed Content Error:</b> You are on HTTPS but the backend is HTTP. You MUST use an HTTPS tunnel (ngrok).';
+                    } else {
+                        msg += 'Make sure server.py is running.';
+                    }
+                    showAlert(msg, 'danger');
+                }
+            }
+            if (!silent) hideLoading();
+        }
 
         // ── Alert ──
         function showAlert(msg, type = 'info') {
@@ -1176,7 +1237,11 @@
                     // but we can update the dashboard stats if we fetch them from the backend.
                     updateStats();
                 } else {
-                    showAlert(`Upload failed: ${data.error}`, 'danger');
+                    let errMsg = data.error || 'Unknown error';
+                    if (window.location.protocol === 'https:' && RAG_BACKEND_URL.includes('localhost')) {
+                        errMsg += '<br><small><b>Note:</b> You are on HTTPS (GitHub) trying to talk to HTTP (localhost). Browser blocks this. Please <b>open admin.html locally</b> on your computer to use this feature.</small>';
+                    }
+                    showAlert(`Upload failed: ${errMsg}`, 'danger');
                 }
             } catch (err) {
                 showAlert(`Server connection error: ${err.message}`, 'danger');
@@ -1225,14 +1290,13 @@
 
         // ── Utility: Get Embedding (with retry + backoff) ──
         async function getEmbedding(text) {
-            const url = `${GEMINI_BASE}/${EMBED_MODEL}:embedContent?key=${GEMINI_API_KEY}`;
+            const url = `${PROXY_URL}/api/embed`;
 
             for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
                 const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        model: `models/${EMBED_MODEL}`,
                         content: { parts: [{ text: text.substring(0, 2048) }] }
                     })
                 });
