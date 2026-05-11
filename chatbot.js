@@ -17,8 +17,8 @@ const CHATBOT_CONFIG = {
     API_PROXY_URL: 'https://gp2.anantanand259.workers.dev',
 
     // RAG Backend URL — Python server running locally or on a server
-    // Change this to your deployed RAG backend URL
-    RAG_BACKEND_URL: 'http://localhost:5000',
+    // Preference: localStorage (set via Admin) > hardcoded default
+    RAG_BACKEND_URL: localStorage.getItem('gpa_rag_url') || 'http://localhost:5000',
 
     // ┌──────────────────────────────────────────────────────┐
     // │  🤖  MODEL CONFIGURATION                            │
@@ -104,6 +104,12 @@ class ChatbotUI {
     }
 
     init() {
+        console.log('[Chatbot] Initializing GPA Assistant...');
+        
+        // Refresh RAG URL from localStorage in case it was changed in Admin
+        CHATBOT_CONFIG.RAG_BACKEND_URL = localStorage.getItem('gpa_rag_url') || CHATBOT_CONFIG.RAG_BACKEND_URL;
+        console.log(`[Chatbot] Using RAG Backend: ${CHATBOT_CONFIG.RAG_BACKEND_URL}`);
+
         this.bindElements();
         this.bindEvents();
         this.loadHistory();
@@ -328,18 +334,20 @@ class ChatbotUI {
                 console.log('[Chatbot] 🔍 Querying RAG backend...');
                 const ragResult = await this._callRAGBackend(query);
 
-                if (ragResult && ragResult.answer && ragResult.chunk_count > 0) {
-                    // Check if RAG refused to answer due to missing context
-                    if (!ragResult.answer.includes('specific information is not available')) {
-                        console.log(`[Chatbot] ✅ RAG response — ${ragResult.chunk_count} sources`);
-                        return {
-                            answer: ragResult.answer,
-                            source: 'rag',
-                            sources: ragResult.sources || []
-                        };
+                if (ragResult && ragResult.answer) {
+                    // Use RAG answer if it found chunks OR if it explicitly says it's from internet
+                    if (ragResult.chunk_count > 0 || ragResult.source_type === 'internet') {
+                        if (!ragResult.answer.includes('specific information is not available')) {
+                            console.log(`[Chatbot] ✅ RAG response — ${ragResult.source_type || 'kb'}`);
+                            return {
+                                answer: ragResult.answer,
+                                source: ragResult.source_type === 'internet' ? 'llm' : 'rag',
+                                sources: ragResult.sources || []
+                            };
+                        }
                     }
                 }
-                console.log('[Chatbot] ℹ️ RAG returned no relevant results, falling back to LLM');
+                console.log('[Chatbot] ℹ️ RAG returned no relevant results, falling back to local LLM engine');
             } catch (e) {
                 console.warn('[Chatbot] ⚠️ RAG backend error, falling back to LLM:', e.message);
             }
