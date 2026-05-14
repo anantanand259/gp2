@@ -35,6 +35,16 @@ except ImportError:
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 # ─────────────────────────────────────────────────────────────
+# LOGGING
+# ─────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s │ %(levelname)-7s │ %(message)s',
+    datefmt='%H:%M:%S'
+)
+log = logging.getLogger('GPA-RAG')
+
+# ─────────────────────────────────────────────────────────────
 # CONFIGURATION
 # ─────────────────────────────────────────────────────────────
 
@@ -42,6 +52,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 # │  🔑  Place your Gemini API Key here or set env var       │
 # └──────────────────────────────────────────────────────────┘
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'YOUR_GOOGLE_KEY_HERE')
+os.environ['GOOGLE_API_KEY'] = GOOGLE_API_KEY
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', 'YOUR_OPENROUTER_KEY_HERE')
 OPENROUTER_MODEL = 'meta-llama/llama-3.3-70b-instruct'
 NGROK_AUTH_TOKEN = os.getenv('NGROK_AUTH_TOKEN', 'YOUR_NGROK_AUTH_TOKEN')
@@ -82,15 +93,7 @@ ALLOWED_ORIGINS = [
     '*',  # Allow all during development — restrict in production
 ]
 
-# ─────────────────────────────────────────────────────────────
-# LOGGING
-# ─────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s │ %(levelname)-7s │ %(message)s',
-    datefmt='%H:%M:%S'
-)
-log = logging.getLogger('GPA-RAG')
+# Logger moved up to avoid NameError during initialization
 
 # ─────────────────────────────────────────────────────────────
 # CREATE DIRECTORIES
@@ -98,8 +101,7 @@ log = logging.getLogger('GPA-RAG')
 for d in [INPUT_DIR, PROCESSED_DIR, CHROMA_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', 'AIzaSyB3VfdenK3ejp9EmEJdQLx7lw8NLkMQ590')
-os.environ['GOOGLE_API_KEY'] = GOOGLE_API_KEY
+# os.environ['GOOGLE_API_KEY'] is already set from .env or default above
 
 # ─────────────────────────────────────────────────────────────
 # GEMINI CLIENT
@@ -295,9 +297,9 @@ log.info('✅ Chunking module ready.')
 # ─────────────────────────────────────────────────────────────
 from langchain_huggingface import HuggingFaceEmbeddings
 
-log.info('⏳ Loading BAAI/bge-m3 embedding model (multilingual support)...')
+log.info('⏳ Loading embedding model (all-MiniLM-L6-v2)...')
 embedding_model = HuggingFaceEmbeddings(
-    model_name='BAAI/bge-m3',
+    model_name='all-MiniLM-L6-v2',
     model_kwargs={'device': 'cpu'},
     encode_kwargs={'normalize_embeddings': True}
 )
@@ -696,40 +698,47 @@ def add_text_entry():
 # ─────────────────────────────────────────────────────────────
 # START SERVER
 # ─────────────────────────────────────────────────────────────
+if __name__ == '__main__':
     # Start ngrok tunnel if token is provided
     public_url = None
     if NGROK_SUPPORT and NGROK_AUTH_TOKEN and NGROK_AUTH_TOKEN != 'YOUR_NGROK_AUTH_TOKEN':
         try:
+            print('[WAIT] Starting Ngrok tunnel...', flush=True)
             conf.get_default().auth_token = NGROK_AUTH_TOKEN
             ngrok.kill()
             public_url = ngrok.connect(PORT).public_url
             log.info(f'🌐 Ngrok tunnel LIVE: {public_url}')
         except Exception as e:
-            log.error(f'❌ Ngrok failed to start: {e}')
+            log.error(f'❌ Ngrok failed: {e}')
+            print(f'❌ Ngrok failed: {e}. Check your NGROK_AUTH_TOKEN.', flush=True)
+    else:
+        print('[INFO] Ngrok token not provided. Server will only be accessible locally.', flush=True)
+        print('[INFO] To enable public access, set NGROK_AUTH_TOKEN in your .env file.', flush=True)
 
     print()
-    print('=' * 62)
-    print('  GPA RAG Backend - Production Server')
-    print('=' * 62)
-    print(f'  Local URL   : http://localhost:{PORT}')
+    print('=' * 62, flush=True)
+    print('  GPA RAG Backend - Production Server', flush=True)
+    print('=' * 62, flush=True)
+    print(f'  Local URL   : http://localhost:{PORT}', flush=True)
     if public_url:
-        print(f'  Public URL  : {public_url}')
-    print(f'  Input docs  : {INPUT_DIR}')
-    print(f'  ChromaDB    : {CHROMA_DIR}')
-    print(f'  Total chunks: {len(load_bm25_docs())}')
-    print(f'  Total files : {len(load_processed_log())}')
-    print()
+        print(f'  Public URL  : {public_url}', flush=True)
+    print(f'  Input docs  : {INPUT_DIR}', flush=True)
+    print(f'  ChromaDB    : {CHROMA_DIR}', flush=True)
+    print(f'  Total chunks: {len(load_bm25_docs())}', flush=True)
+    print(f'  Total files : {len(load_processed_log())}', flush=True)
+    print(flush=True)
     if public_url:
-        print('  📋 PASTE INTO chatbot.js & admin.html:')
-        print(f'     RAG_BACKEND_URL: \'{public_url}\'')
-        print()
-    print('  Endpoints:')
-    print(f'    GET  /api/health')
-    print(f'    GET  /api/rag/stats')
-    print(f'    POST /api/rag/query')
-    print(f'    POST /api/rag/ingest')
-    print(f'    POST /api/rag/add-text')
-    print('=' * 62)
-    print()
+        print('  📋 NEXT STEP: Update your Cloudflare Worker Secret:', flush=True)
+        print(f'     wrangler secret put RAG_BACKEND_URL', flush=True)
+        print(f'     (Then paste: {public_url})', flush=True)
+        print(flush=True)
+    print('  Endpoints:', flush=True)
+    print(f'    GET  /api/health', flush=True)
+    print(f'    GET  /api/rag/stats', flush=True)
+    print(f'    POST /api/rag/query', flush=True)
+    print(f'    POST /api/rag/ingest', flush=True)
+    print(f'    POST /api/rag/add-text', flush=True)
+    print('=' * 62, flush=True)
+    print(flush=True)
 
     app.run(host=HOST, port=PORT, debug=False)
