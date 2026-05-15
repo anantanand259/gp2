@@ -128,13 +128,19 @@ async function handleRAGProxy(request, env) {
     const url = new URL(request.url);
     const targetUrl = `${backendUrl.replace(/\/$/, '')}${url.pathname}`;
 
+    // Prepare headers: exclude 'host' to avoid ngrok routing issues
+    const filteredHeaders = new Headers();
+    for (const [key, value] of request.headers.entries()) {
+        if (key.toLowerCase() !== 'host') {
+            filteredHeaders.set(key, value);
+        }
+    }
+    filteredHeaders.set('ngrok-skip-browser-warning', 'true');
+
     // Forward the request
     const proxyRequest = new Request(targetUrl, {
         method: request.method,
-        headers: {
-            ...Object.fromEntries(request.headers),
-            'ngrok-skip-browser-warning': 'true'
-        },
+        headers: filteredHeaders,
         body: request.body,
         redirect: 'manual'
     });
