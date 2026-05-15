@@ -131,7 +131,10 @@ async function handleRAGProxy(request, env) {
     // Forward the request
     const proxyRequest = new Request(targetUrl, {
         method: request.method,
-        headers: request.headers,
+        headers: {
+            ...Object.fromEntries(request.headers),
+            'ngrok-skip-browser-warning': 'true'
+        },
         body: request.body,
         redirect: 'manual'
     });
