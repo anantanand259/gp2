@@ -867,6 +867,10 @@
         let RAG_BACKEND_URL = localStorage.getItem('gpa_rag_url') || 'https://gp2.anantanand259.workers.dev';
         const PROXY_URL = 'https://gp2.anantanand259.workers.dev';
         const STORAGE_KEY_KB = 'gpa_chatbot_kb';
+        const CHUNK_SIZE = 1500;
+        const CHUNK_OVERLAP = 250;
+        const MAX_RETRIES = 3;
+        const RETRY_BASE_DELAY = 1500; // ms
 
         // ── Init ──
         document.addEventListener('DOMContentLoaded', () => {
@@ -904,7 +908,17 @@
                 });
                 clearTimeout(timeoutId);
 
-                const data = await res.json();
+                // Safe JSON parse — handle non-JSON responses gracefully
+                const ct = res.headers.get('Content-Type') || '';
+                let data;
+                if (ct.includes('application/json')) {
+                    data = await res.json();
+                } else {
+                    const raw = await res.text();
+                    if (!silent) showAlert(`❌ Backend returned non-JSON response. The tunnel may be offline.`, 'danger');
+                    if (!silent) hideLoading();
+                    return;
+                }
                 if (res.ok) {
                     if (!silent) showAlert(`✅ Connected to RAG Backend! (v${data.version})`, 'success');
                     console.log('Backend connected:', data);
@@ -1271,7 +1285,25 @@
                     body: formData
                 });
 
-                const data = await response.json();
+                // Safe JSON parsing — detect HTML error pages from dead tunnels
+                const contentType = response.headers.get('Content-Type') || '';
+                let data;
+                if (contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    const rawText = await response.text();
+                    // The backend (or ngrok) returned HTML instead of JSON
+                    let reason = 'The server returned an unexpected response.';
+                    if (rawText.includes('ngrok') || rawText.includes('ERR_NGROK')) {
+                        reason = 'The ngrok tunnel is offline or expired. Restart your Python RAG server to get a new tunnel URL.';
+                    } else if (rawText.trim().startsWith('<')) {
+                        reason = 'The backend returned an HTML error page instead of JSON. It may be down.';
+                    }
+                    showAlert(`Upload failed: ${reason}`, 'danger');
+                    event.target.value = '';
+                    hideLoading();
+                    return;
+                }
                 
                 if (response.ok) {
                     showAlert(`Successfully processed! Added ${data.new_chunks || data.chunks_added || 0} chunks. Total: ${data.total_chunks || 0}`, 'success');
@@ -1293,6 +1325,7 @@
                     testBackendHealth(true); // Sync dashboard numbers with real backend state
                 } else {
                     let errMsg = data.error || 'Unknown error';
+                    if (data.hint) errMsg += `<br><small>${data.hint}</small>`;
                     if (window.location.protocol === 'https:' && RAG_BACKEND_URL.includes('localhost')) {
                         errMsg += '<br><small><b>Note:</b> You are on HTTPS (GitHub) trying to talk to HTTP (localhost). Browser blocks this. Please <b>open admin.html locally</b> on your computer to use this feature.</small>';
                     }
@@ -1300,7 +1333,10 @@
                 }
             } catch (err) {
                 let msg = `Server connection error: ${err.message}. `;
-                if (err.message.includes('fetch') || err.name === 'TypeError') {
+                if (err.message.includes('Unexpected token')) {
+                    msg = 'The RAG backend is offline or returned an invalid response. ';
+                    msg += '<br><b>Reason:</b> Restart your Python server & update the tunnel URL.';
+                } else if (err.message.includes('fetch') || err.name === 'TypeError') {
                     if (window.location.protocol === 'https:' && RAG_BACKEND_URL.startsWith('http:')) {
                         msg += '<br><b>Reason:</b> Mixed Content blocked. Use HTTPS for your backend.';
                     } else {

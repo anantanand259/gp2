@@ -146,9 +146,35 @@ async function handleRAGProxy(request, env) {
     });
 
     try {
-        return await fetch(proxyRequest);
+        const upstreamResponse = await fetch(proxyRequest);
+
+        // Guard: if the upstream (e.g. ngrok) returns HTML instead of JSON,
+        // wrap it in a proper JSON error so the client never sees raw HTML.
+        const contentType = upstreamResponse.headers.get('Content-Type') || '';
+        if (!contentType.includes('application/json')) {
+            const bodySnippet = await upstreamResponse.text();
+            const isNgrokError = bodySnippet.includes('ngrok') || bodySnippet.includes('ERR_NGROK');
+            const isTunnelDown = bodySnippet.includes('tunnel') || bodySnippet.includes('offline');
+            let hint = 'The RAG backend returned a non-JSON response.';
+            if (isNgrokError || isTunnelDown) {
+                hint = 'The ngrok tunnel is offline or expired. Restart your Python server and update RAG_BACKEND_URL with the new ngrok URL.';
+            } else if (bodySnippet.trim().startsWith('<')) {
+                hint = 'The backend returned an HTML page instead of JSON. It may be down or misconfigured.';
+            }
+            return jsonResponse({
+                error: hint,
+                upstream_status: upstreamResponse.status,
+                backend_url: targetUrl
+            }, 502);
+        }
+
+        return upstreamResponse;
     } catch (err) {
-        return jsonResponse({ error: 'Failed to reach RAG backend', detail: err.message }, 502);
+        return jsonResponse({
+            error: 'Failed to reach RAG backend',
+            detail: err.message,
+            hint: 'Make sure your Python server is running and the ngrok tunnel is active. Then update RAG_BACKEND_URL with: wrangler secret put RAG_BACKEND_URL'
+        }, 502);
     }
 }
 
