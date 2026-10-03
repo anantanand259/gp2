@@ -1,0 +1,25 @@
+# Python Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment Variables & Secrets
+.env
+.env.local
+
+# Chroma DB and Local Cache
+chroma_db/
+knowledge_base/chroma_db/
+knowledge_base/processed_log.json
+knowledge_base/bm25_docs.json
+
+# Node & Wrangler
+node_modules/
+.wrangler/

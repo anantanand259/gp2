@@ -11,3 +11,7 @@ flask-cors
 pydantic
 Pillow
 PyPDF2
+requests
+python-dotenv
+pyngrok
+sentence-transformers

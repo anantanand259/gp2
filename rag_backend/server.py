@@ -295,14 +295,55 @@ log.info('✅ Chunking module ready.')
 # ─────────────────────────────────────────────────────────────
 # EMBEDDING MODEL (BAAI/bge-m3 — multilingual)
 # ─────────────────────────────────────────────────────────────
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.embeddings import Embeddings
+import numpy as np
 
-log.info('⏳ Loading embedding model (all-MiniLM-L6-v2)...')
-embedding_model = HuggingFaceEmbeddings(
-    model_name='all-MiniLM-L6-v2',
-    model_kwargs={'device': 'cpu'},
-    encode_kwargs={'normalize_embeddings': True}
-)
+class OnnxMiniLMEmbeddings(Embeddings):
+    """
+    Lightweight, high-performance ONNX embeddings for all-MiniLM-L6-v2.
+    Runs on CPU via onnxruntime + tokenizers without requiring PyTorch,
+    avoiding Windows 11 Application Control DLL policy blocks.
+    """
+    def __init__(self):
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+        from huggingface_hub import hf_hub_download
+
+        model_path = hf_hub_download('sentence-transformers/all-MiniLM-L6-v2', subfolder='onnx', filename='model.onnx')
+        tokenizer_path = hf_hub_download('sentence-transformers/all-MiniLM-L6-v2', filename='tokenizer.json')
+
+        self.tokenizer = Tokenizer.from_file(tokenizer_path)
+        self.tokenizer.enable_truncation(max_length=256)
+        self.tokenizer.enable_padding(length=256)
+        self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        encodings = [self.tokenizer.encode(t) for t in texts]
+        input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
+        attention_mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+        token_type_ids = np.array([e.type_ids for e in encodings], dtype=np.int64)
+
+        outputs = self.session.run(None, {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'token_type_ids': token_type_ids
+        })
+        token_embeddings = outputs[0]
+        input_mask_expanded = np.expand_dims(attention_mask, -1).astype(np.float32)
+        sum_embeddings = np.sum(token_embeddings * input_mask_expanded, axis=1)
+        sum_mask = np.clip(input_mask_expanded.sum(axis=1), a_min=1e-9, a_max=None)
+        pooled = sum_embeddings / sum_mask
+        norm = np.linalg.norm(pooled, axis=1, keepdims=True)
+        norm = np.clip(norm, a_min=1e-12, a_max=None)
+        return (pooled / norm).tolist()
+
+    def embed_query(self, text: str) -> List[float]:
+        return self.embed_documents([text])[0]
+
+log.info('⏳ Loading embedding model (all-MiniLM-L6-v2 ONNX)...')
+embedding_model = OnnxMiniLMEmbeddings()
 log.info('✅ Embedding model loaded.')
 
 # ─────────────────────────────────────────────────────────────
@@ -310,7 +351,13 @@ log.info('✅ Embedding model loaded.')
 # ─────────────────────────────────────────────────────────────
 from langchain_community.vectorstores import Chroma
 from langchain_community.retrievers import BM25Retriever
-from langchain_classic.retrievers import EnsembleRetriever
+try:
+    from langchain.retrievers import EnsembleRetriever
+except ImportError:
+    try:
+        from langchain_community.retrievers import EnsembleRetriever
+    except ImportError:
+        from langchain_classic.retrievers import EnsembleRetriever
 
 def load_processed_log() -> list:
     if LOG_FILE.exists():
