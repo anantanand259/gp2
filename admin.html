@@ -1272,83 +1272,59 @@
         }
 
         async function uploadFileToBackend(event) {
-            const file = event.target.files[0];
-            if (!file) return;
+    const file = event.target.files[0];
+    if (!file) return;
 
-            showLoading(`Uploading and processing ${file.name}...`);
-            const formData = new FormData();
-            formData.append('file', file);
+    if (file.size > 10 * 1024 * 1024) {
+        showAlert('File too large (max 10 MB).', 'warning');
+        event.target.value = '';
+        return;
+    }
 
-            try {
-                const response = await fetch(`${RAG_BACKEND_URL}/api/rag/ingest`, {
-                    method: 'POST',
-                    body: formData
-                });
+    const url = `${RAG_BACKEND_URL}/api/rag/ingest`;
+    showLoading(`Uploading and processing ${file.name}...`);
 
-                // Safe JSON parsing — detect HTML error pages from dead tunnels
-                const contentType = response.headers.get('Content-Type') || '';
-                let data;
-                if (contentType.includes('application/json')) {
-                    data = await response.json();
-                } else {
-                    const rawText = await response.text();
-                    // The backend (or ngrok) returned HTML instead of JSON
-                    let reason = 'The server returned an unexpected response.';
-                    if (rawText.includes('ngrok') || rawText.includes('ERR_NGROK')) {
-                        reason = 'The ngrok tunnel is offline or expired. Restart your Python RAG server to get a new tunnel URL.';
-                    } else if (rawText.trim().startsWith('<')) {
-                        reason = 'The backend returned an HTML error page instead of JSON. It may be down.';
-                    }
-                    showAlert(`Upload failed: ${reason}`, 'danger');
-                    event.target.value = '';
-                    hideLoading();
-                    return;
-                }
-                
-                if (response.ok) {
-                    showAlert(`Successfully processed! Added ${data.new_chunks || data.chunks_added || 0} chunks. Total: ${data.total_chunks || 0}`, 'success');
-                    
-                    // Add uploaded file reference to local storage so it renders in the entries table!
-                    const kb = getKB();
-                    const id = 'file_' + Date.now().toString(36);
-                    kb.entries.push({
-                        id,
-                        title: file.name,
-                        content: `Uploaded file processed directly into Python RAG Backend database. Active chunks added: ${data.new_chunks || data.chunks_added || 'N/A'}.`,
-                        createdAt: new Date().toISOString(),
-                        isFile: true
-                    });
-                    saveKB(kb);
-                    
-                    refreshEntries();
-                    updateStats();
-                    testBackendHealth(true); // Sync dashboard numbers with real backend state
-                } else {
-                    let errMsg = data.error || 'Unknown error';
-                    if (data.hint) errMsg += `<br><small>${data.hint}</small>`;
-                    if (window.location.protocol === 'https:' && RAG_BACKEND_URL.includes('localhost')) {
-                        errMsg += '<br><small><b>Note:</b> You are on HTTPS (GitHub) trying to talk to HTTP (localhost). Browser blocks this. Please <b>open admin.html locally</b> on your computer to use this feature.</small>';
-                    }
-                    showAlert(`Upload failed: ${errMsg}`, 'danger');
-                }
-            } catch (err) {
-                let msg = `Server connection error: ${err.message}. `;
-                if (err.message.includes('Unexpected token')) {
-                    msg = 'The RAG backend is offline or returned an invalid response. ';
-                    msg += '<br><b>Reason:</b> Restart your Python server & update the tunnel URL.';
-                } else if (err.message.includes('fetch') || err.name === 'TypeError') {
-                    if (window.location.protocol === 'https:' && RAG_BACKEND_URL.startsWith('http:')) {
-                        msg += '<br><b>Reason:</b> Mixed Content blocked. Use HTTPS for your backend.';
-                    } else {
-                        msg += '<br><b>Reason:</b> Server or Tunnel is offline.';
-                    }
-                }
-                showAlert(msg, 'danger');
-            }
+    const formData = new FormData();
+    formData.append('file', file);
 
-            event.target.value = '';
-            hideLoading();
+    try {
+        const response = await fetch(url, { method: 'POST', body: formData });
+
+        // Read as text first, then try to parse JSON
+        const rawText = await response.text();
+        let data = null;
+        try { data = JSON.parse(rawText); } catch (_) {}
+
+        if (!response.ok || !data) {
+            const detail = data?.error || rawText.slice(0, 150).replace(/\s+/g, ' ');
+            throw new Error(`HTTP ${response.status} from ${url} — ${detail}`);
         }
+
+        const added = data.chunks ?? data.new_chunks ?? data.chunks_added ?? 0;
+        showAlert(`✅ ${file.name} processed successfully. Added ${added} chunks.`, 'success');
+
+        // Show the uploaded file in the entries table
+        const kb = getKB();
+        kb.entries.push({
+            id: 'file_' + Date.now().toString(36),
+            title: file.name,
+            content: `Uploaded file processed into the knowledge base. Chunks added: ${added}.`,
+            createdAt: new Date().toISOString(),
+            isFile: true
+        });
+        saveKB(kb);
+
+        refreshEntries();
+        updateStats();
+        testBackendHealth(true);   // syncs the dashboard numbers
+    } catch (e) {
+        showAlert(`❌ Upload failed: ${e.message}`, 'danger');
+        console.error('Upload error:', e);
+    } finally {
+        hideLoading();
+        event.target.value = '';
+    }
+}
 
         // ── Clear All ──
         function clearAllData() {
