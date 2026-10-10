@@ -37,6 +37,19 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(describe_query_error(Exception('429 RESOURCE_EXHAUSTED'))[0]['code'], 'PROVIDER_QUOTA_ERROR')
         self.assertEqual(describe_query_error(Exception('Request timed out'))[1], 504)
 
+    def test_upload_quota_returns_429_with_provider_retry_delay(self):
+        payload, status = describe_query_error(Exception("429 RESOURCE_EXHAUSTED quota metric with retryDelay: '71305s'"), operation='upload')
+        self.assertEqual(status, 429)
+        self.assertEqual(payload['retry_after_seconds'], 71305)
+        self.assertIn('19h 49m', payload['error'])
+        self.assertIn('not indexed', payload['error'])
+        self.assertNotIn('quota metric', payload['error'])
+
+    def test_quota_delay_containing_401_is_not_an_auth_error(self):
+        payload, status = describe_query_error(Exception("RESOURCE_EXHAUSTED quota retryDelay: '40100s'"))
+        self.assertEqual(status, 429)
+        self.assertEqual(payload['code'], 'PROVIDER_QUOTA_ERROR')
+
     def setUp(self):
         self.doc = SimpleNamespace(page_content='Exam registration closes 14 October 2026.',
                                    metadata={'subject': 'Exam notice', 'filename': 'exam.pdf'})

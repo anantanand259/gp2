@@ -31,6 +31,15 @@ pending image cannot block a new PDF, JSON or other supported upload. Explicit
 folder scans continue past failed files; unreadable selected uploads return
 HTTP 422 with `UNREADABLE_DOCUMENT` instead of an unrelated HTTP 500.
 
+Gemini quota failures return HTTP 429 and a safe message with the provider's
+retry delay when supplied. Pending uploads are not automatically processed on
+server startup; this prevents restarts from consuming more extraction requests.
+To explicitly scan a directory, POST to `/api/rag/ingest` without a file, or opt
+in to startup scanning with `RAG_INGEST_ON_STARTUP=1`. Images and scanned PDFs
+require Gemini visual extraction. JSON, plain text, CSV, Markdown and PDFs with
+extractable text are indexed locally. Answer generation may still require
+provider quota unless a working OpenRouter key is configured.
+
 ## Run and publish
 
 1. From `C:\AI_ML\gp2`, use the existing `.venv\Scripts\python.exe`.

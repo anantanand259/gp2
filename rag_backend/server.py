@@ -517,9 +517,14 @@ def ingest_documents(fail_on_error=False, filenames=None):
     save_processed_log(processed_files)
     return documents_to_add
 
-# Run initial ingestion
-log.info('⏳ Running initial document ingestion...')
-initial_docs = ingest_documents()
+# Startup restores indexes without spending extraction quota on pending uploads.
+# Directory ingestion remains available explicitly or by opting in with an env flag.
+initial_docs = []
+if os.getenv('RAG_INGEST_ON_STARTUP', '0') == '1':
+    log.info('⏳ Running explicitly enabled startup document ingestion...')
+    initial_docs = ingest_documents()
+else:
+    log.info('Restoring indexes; pending uploads will not be automatically retried.')
 hybrid_retriever = build_hybrid_retriever([])
 kb_lock = RLock()
 log.info(f'✅ Retriever ready. New chunks: {len(initial_docs)}, Total BM25: {len(load_bm25_docs())}')
@@ -615,7 +620,8 @@ def rag_query():
         log.error(f'❌ Query failed: {e}')
         log.debug(traceback.format_exc())
         payload, status = describe_query_error(e)
-        return jsonify(payload), status
+        headers = {'Retry-After': str(payload['retry_after_seconds'])} if 'retry_after_seconds' in payload else {}
+        return jsonify(payload), status, headers
 
 
 @app.route('/api/rag/ingest', methods=['POST'])
@@ -657,7 +663,9 @@ def trigger_ingest():
         return jsonify({'error': str(e), 'code': 'UNREADABLE_DOCUMENT'}), 422
     except Exception as e:
         log.error(f'❌ Ingestion failed: {e}')
-        return jsonify({'error': str(e)}), 500
+        payload, status = describe_query_error(e, operation='upload')
+        headers = {'Retry-After': str(payload['retry_after_seconds'])} if 'retry_after_seconds' in payload else {}
+        return jsonify(payload), status, headers
 
 
 @app.route('/api/rag/add-text', methods=['POST'])
