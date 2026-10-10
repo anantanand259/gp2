@@ -4,6 +4,10 @@ import re
 
 
 def describe_query_error(error, operation='query'):
+    if getattr(error, 'code', None) == 'LLM_PROVIDERS_UNAVAILABLE':
+        seconds = error.retry_after
+        return {'code': error.code, 'retry_after_seconds': seconds,
+                'error': 'All configured AI models are busy or unavailable. Please retry later; the administrator can check provider quota and keys.'}, 503
     message = str(error).lower()
     if any(marker in message for marker in ('resource_exhausted', 'quota', 'rate limit')) or re.search(r'\b429\b', message):
         payload = {'code': 'PROVIDER_QUOTA_ERROR',

@@ -42,6 +42,38 @@ provider quota unless a working OpenRouter key is configured.
 
 ## Run and publish
 
+### Automatic model fallback and multiple users
+
+The Python backend tries configured OpenRouter, Groq and Gemini routes in that
+order. Gemini includes both `gemini-2.5-flash` and `gemini-2.5-flash-lite` by
+default. Keys and model order are configured in `.env`; see `.env.example`.
+Missing keys are skipped. Add `GROQ_API_KEY` to activate Groq. Restart Python
+after changing keys. A key being accepted does not guarantee model access or
+available credits; actual generation can still fail and trigger the next route.
+
+Every fallback receives the same KB context and JSON validation rules. A model
+failure never authorizes a general-knowledge answer. Supporting source indices
+are kept in API metadata for validation, while the chat answer has no appended
+source list, `[Source N]` markers, or source badge.
+
+Quota failures put a route on cooldown using the provider retry delay when
+available. Concurrent requests skip cooling-down or busy providers. A semaphore
+bounds each provider to `LLM_MAX_CONCURRENCY` calls, default 2. Repeated supported
+questions are cached for five minutes, and identical simultaneous questions use
+one generation. A changed KB fingerprint invalidates prior cached answers.
+State is shared within one Python process; multiple server processes would need
+a shared cache/cooldown store. If all configured routes are unavailable, the
+backend returns a clear retryable HTTP 503, not an invented answer.
+
+Image/scanned-PDF extraction and grounded web search use the two Gemini models;
+Groq and the configured OpenRouter text model do not provide those capabilities.
+Different Gemini models may still share project/account limits. Independent
+providers help availability but cannot guarantee unlimited traffic or prevent
+all outages. The local Python server and public tunnel still need to remain up.
+Adapters follow the [Groq chat API](https://console.groq.com/docs/api-reference),
+[OpenRouter structured-output API](https://openrouter.ai/docs/guides/features/structured-outputs)
+and [Gemini Flash-Lite capabilities](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-lite).
+
 1. From `C:\AI_ML\gp2`, use the existing `.venv\Scripts\python.exe`.
    This environment and its backend dependencies were verified outside the
    Codex sandbox. Install updates with

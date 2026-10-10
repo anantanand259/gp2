@@ -23,6 +23,8 @@ import hashlib
 from threading import RLock
 from werkzeug.utils import secure_filename
 from backend_errors import describe_query_error
+from llm_pool import LLMPool, configured_key
+from query_cache import QueryCache
 from pathlib import Path
 from typing import List, Optional
 
@@ -113,7 +115,9 @@ for d in [INPUT_DIR, PROCESSED_DIR, CHROMA_DIR]:
 from google import genai
 from google.genai import types
 
-client = genai.Client(http_options=types.HttpOptions(timeout=25000))
+client = genai.Client(http_options=types.HttpOptions(timeout=20000)) if configured_key(GOOGLE_API_KEY) else None
+llm_pool = LLMPool.from_environment(client, OPENROUTER_API_KEY, OPENROUTER_MODEL)
+query_cache = QueryCache()
 log.info('✅ Gemini client ready.')
 
 # ─────────────────────────────────────────────────────────────
@@ -159,19 +163,24 @@ Return valid JSON only.
 def extract_from_image(image_path: str) -> AcademicNoticeSchema:
     """Extract structured data from an image document using Gemini VLM."""
     document_image = Image.open(image_path)
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
+    response = llm_pool.generate_gemini(
         contents=[document_image, EXTRACTION_PROMPT],
         config=types.GenerateContentConfig(
             response_mime_type='application/json',
             response_schema=AcademicNoticeSchema,
             temperature=0.0
-        )
+        ), validator=validate_extraction
     )
     parsed = response.parsed
     if not parsed.main_body_content:
         parsed.main_body_content = ''
     return parsed
+
+
+def validate_extraction(response):
+    if not response.parsed or not (response.parsed.main_body_content or '').strip():
+        raise ValueError('No readable text extracted from this document.')
+    return response
 
 log.info('✅ VLM extraction module ready.')
 
@@ -201,11 +210,11 @@ def extract_from_pdf(pdf_path: str) -> AcademicNoticeSchema:
     full_text = full_text.strip()
     if not full_text or any(not (page.extract_text() or '').strip() for page in reader.pages):
         # Scanned PDFs (or mixed text/scanned pages) need visual extraction.
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
+        response = llm_pool.generate_gemini(
             contents=[types.Part.from_bytes(data=Path(pdf_path).read_bytes(), mime_type='application/pdf'), EXTRACTION_PROMPT],
             config=types.GenerateContentConfig(response_mime_type='application/json',
-                                              response_schema=AcademicNoticeSchema, temperature=0)
+                                              response_schema=AcademicNoticeSchema, temperature=0),
+            validator=validate_extraction
         )
         if not response.parsed or not response.parsed.main_body_content:
             raise ValueError(f'No readable content extracted from PDF: {Path(pdf_path).name}')
@@ -540,8 +549,13 @@ def generate_rag_answer(user_query: str) -> dict:
         retriever = hybrid_retriever
         documents = [Document(page_content=d['content'], metadata=d.get('metadata', {}))
                      for d in load_bm25_docs()]
-    return answer_query(user_query, retriever, client, OPENROUTER_API_KEY, OPENROUTER_MODEL,
-                        all_documents=documents)
+    fingerprint = hashlib.sha256(json.dumps([
+        {'text': doc.page_content, 'metadata': doc.metadata} for doc in documents
+    ], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    key = (fingerprint, user_query.strip().casefold())
+    return query_cache.run(key, lambda: answer_query(
+        user_query, retriever, client, OPENROUTER_API_KEY, OPENROUTER_MODEL,
+        all_documents=documents, pool=llm_pool))
 
 
 log.info('✅ RAG query function ready.')
@@ -578,7 +592,8 @@ def health():
         'version': '3.0',
         'retriever_ready': hybrid_retriever is not None,
         'total_chunks': len(load_bm25_docs()),
-        'total_documents': len(load_processed_log())
+        'total_documents': len(load_processed_log()),
+        'llm': llm_pool.status()
     })
 
 

@@ -582,18 +582,10 @@ class ChatbotUI {
         const now = new Date();
         const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
-        let sourceTag = '';
-        if (source === 'rag') {
-            sourceTag = `<div class="msg-source"><i class="fas fa-database"></i> From Knowledge Base</div>`;
-        } else if (source === 'internet') {
-            sourceTag = `<div class="msg-source" style="color: #6b7280; border-color: #d1d5db;"><i class="fas fa-globe"></i> From Web Search (not a college notice)</div>`;
-        }
-
         msgDiv.innerHTML = `
             <div class="msg-avatar"><i class="fas fa-university"></i></div>
             <div class="msg-bubble">
                 <div class="msg-text-content"></div>
-                ${sourceTag}
                 <span class="msg-time">${timeStr}</span>
             </div>
         `;

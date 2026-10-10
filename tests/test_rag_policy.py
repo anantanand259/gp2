@@ -65,6 +65,8 @@ class RoutingTests(unittest.TestCase):
             web.assert_not_called()
             self.assertEqual(result['source_type'], 'rag')
             self.assertEqual(result['sources'][0]['filename'], 'exam.pdf')
+            self.assertNotIn('[Source', result['answer'])
+            self.assertNotIn('Knowledge base sources', result['answer'])
 
     def test_explicit_miss_searches(self):
         with patch.object(rag_answers, 'assess_context', return_value=None), patch.object(rag_answers, 'search_web', return_value={'source_type': 'internet'}) as web:
@@ -122,7 +124,8 @@ class RoutingTests(unittest.TestCase):
         self.client.models.generate_content.return_value = SimpleNamespace(text='Verified detail', candidates=[SimpleNamespace(grounding_metadata=grounding)])
         result = rag_answers.search_web('Question?', self.client)
         self.assertEqual(result['source_type'], 'internet')
-        self.assertIn('https://example.edu/notice', result['answer'])
+        self.assertEqual(result['sources'][0]['url'], 'https://example.edu/notice')
+        self.assertNotIn('Web sources:', result['answer'])
 
     def test_invalid_grounding_rejected(self):
         for decision in [ {'supported': 'false'}, {'supported': True, 'answer': 'hi', 'source_indices': []},

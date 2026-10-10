@@ -1,6 +1,7 @@
 """KB-first answering. Provider/validation errors never authorize web fallback."""
 import json
 import requests
+import re
 from google.genai import types
 from answer_policy import parse_kb_decision
 
@@ -10,7 +11,8 @@ Read all sources, including Hindi and English notices and tables. Match paraphra
 If any source contains useful information answering the question, supported MUST be true.
 Answer only supported parts; explicitly state what details are missing. Never fill gaps
 with outside knowledge. Preserve dates, deadlines, eligibility, amounts and names.
-Cite each factual statement as [Source N].
+Do not include source markers, filenames or a source list in the answer text.
+Return supporting source indices separately for internal validation.
 If ALL sources lack useful information answering the question, supported MUST be false.
 Return ONLY a JSON object with fields:
 {"supported": boolean, "answer": "answer text", "source_indices": [1, 2]}.
@@ -18,9 +20,11 @@ For unsupported queries return an empty answer and empty source_indices.
 '''
 
 
-def assess_context(query, docs, client, api_key, model):
+def assess_context(query, docs, client, api_key, model, pool=None):
     context = '\n\n'.join(f'[Source {i}]\n{d.page_content}' for i, d in enumerate(docs, 1))
     question = json.dumps({'sources': context, 'question': query}, ensure_ascii=False)
+    if pool is not None:
+        return pool.generate_json(KB_PROMPT, question, lambda raw: parse_kb_decision(raw, len(docs)))
     try:
         response = requests.post(
             'https://openrouter.ai/api/v1/chat/completions',
@@ -45,17 +49,18 @@ def assess_context(query, docs, client, api_key, model):
         return parse_kb_decision(response.text, len(docs))
 
 
-def search_web(query, client):
-    response = client.models.generate_content(
-        model='gemini-2.5-flash', contents=query,
-        config=types.GenerateContentConfig(
+def search_web(query, client, pool=None):
+    config = types.GenerateContentConfig(
             tools=[types.Tool(google_search=types.GoogleSearch())], temperature=0,
             system_instruction='''The uploaded college knowledge base has no useful answer
 to this question. Use Google Search and answer only facts verified in search results.
 Prefer official college or government sources for college facts. Never invent a local
 notice, date or deadline. Clearly say when no verifiable answer is available.'''
         )
-    )
+    if pool is not None:
+        response = pool.generate_gemini(contents=query, config=config)
+    else:
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=query, config=config)
     candidates = response.candidates or []
     grounding = candidates[0].grounding_metadata if candidates else None
     chunks = getattr(grounding, 'grounding_chunks', None) or []
@@ -70,14 +75,14 @@ notice, date or deadline. Clearly say when no verifiable answer is available.'''
     if not response.text or not sources:
         return {'answer': 'This information is not in the uploaded knowledge base, and web search did not provide a verified answer. Please contact the college.',
                 'sources': [], 'chunk_count': 0, 'source_type': 'none', 'kb_match': False}
-    links = '\n'.join(f'- [{s["title"]}]({s["url"]})' for s in sources)
-    return {'answer': 'No answer was found in the uploaded college knowledge base. From web search:\n\n' + response.text + '\n\nWeb sources:\n' + links,
+    return {'answer': 'No answer was found in the uploaded college knowledge base. From web search:\n\n' + response.text,
             'sources': sources, 'chunk_count': 0, 'source_type': 'internet', 'kb_match': False}
 
 
-def answer_query(query, retriever, client, api_key, model, all_documents=None):
+def answer_query(query, retriever, client, api_key, model, all_documents=None, pool=None):
     docs = retriever.invoke(query)  # Retrieval failures propagate; they are not KB misses.
-    decision = assess_context(query, docs, client, api_key, model) if docs else None
+    assess = lambda batch: assess_context(query, batch, client, api_key, model, pool=pool) if pool is not None else assess_context(query, batch, client, api_key, model)
+    decision = assess(docs) if docs else None
     if decision is None and all_documents is not None:
         # A top-k miss does not prove that the answer is absent from the KB.
         # Check remaining documents before authorizing external search. This
@@ -90,19 +95,19 @@ def answer_query(query, retriever, client, api_key, model, all_documents=None):
                 seen.add(doc.page_content)
         for offset in range(0, len(remaining), 12):
             batch = remaining[offset:offset + 12]
-            decision = assess_context(query, batch, client, api_key, model)
+            decision = assess(batch)
             if decision is not None:
                 docs = batch
                 break
     if decision is None:
-        return search_web(query, client)
+        return search_web(query, client, pool=pool) if pool is not None else search_web(query, client)
     sources = []
     for index in decision['source_indices']:
         meta = docs[index - 1].metadata or {}
         sources.append({'index': index, 'reference': meta.get('reference_number', 'N/A'),
                         'date': meta.get('date_issued', 'N/A'), 'subject': meta.get('subject', 'N/A'),
                         'authority': meta.get('issuing_authority', 'N/A'), 'filename': meta.get('filename')})
-    labels = '\n'.join(f'- [Source {s["index"]}] {s.get("filename") or s["subject"]}' for s in sources)
-    return {'answer': decision['answer'] + '\n\nKnowledge base sources:\n' + labels,
+    answer = re.sub(r'\s*\[Source\s+\d+(?:\s*[,;]\s*\d+)*\]', '', decision['answer'], flags=re.I).strip()
+    return {'answer': answer,
             'sources': sources, 'chunk_count': len(sources),
             'source_type': 'rag', 'kb_match': True}
