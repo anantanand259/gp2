@@ -27,6 +27,24 @@ with patch.dict(sys.modules, {'requests': requests, 'google': google, 'google.ge
 
 
 class RoutingTests(unittest.TestCase):
+    def test_greetings_answer_without_retrieval_or_models(self):
+        for text in ('hi', 'HI!!', 'hlw', 'hello', 'hlo', 'hey GPA', 'नमस्ते 🙏', 'thank you', 'how are you?', 'help'):
+            retriever = Mock(side_effect=AssertionError('No retrieval for greetings'))
+            client = Mock()
+            with patch.object(rag_answers, 'search_web') as web:
+                result = rag_answers.answer_query(text, retriever, client, '', '')
+            self.assertEqual(result['source_type'], 'conversation')
+            retriever.invoke.assert_not_called()
+            client.models.generate_content.assert_not_called()
+            web.assert_not_called()
+
+    def test_greeting_with_college_question_still_uses_rag(self):
+        retriever = Mock()
+        retriever.invoke.return_value = [SimpleNamespace(page_content='Exam deadline is Monday', metadata={})]
+        with patch.object(rag_answers, 'assess_context', return_value={'answer':'Monday','source_indices':[1]}) as assess:
+            result = rag_answers.answer_query('Hi, when is my exam deadline?', retriever, Mock(), '', '')
+        assess.assert_called_once()
+        self.assertEqual(result['source_type'], 'rag')
     def test_authentication_error_is_actionable_without_raw_payload(self):
         payload, status = describe_query_error(ValueError('400 INVALID_ARGUMENT: API_KEY_INVALID sensitive provider payload'))
         self.assertEqual(status, 503)

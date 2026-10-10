@@ -367,6 +367,8 @@ class ChatbotUI {
     }
 
     async processQuery(query) {
+        const conversation = this.conversationalReply(query);
+        if (conversation) return { answer: conversation, source: 'conversation', sources: [] };
         // Only the backend may decide that the KB lacks an answer. A network
         // error, health-check race, or refusal must never bypass uploaded notices.
         CHATBOT_CONFIG.RAG_BACKEND_URL = localStorage.getItem('gpa_rag_url') || CHATBOT_CONFIG.RAG_BACKEND_URL;
@@ -388,6 +390,19 @@ class ChatbotUI {
             if (error.backendReached) throw error;
             throw new Error('I could not check the college knowledge base. Please try again when the backend is available.');
         }
+    }
+
+    conversationalReply(query) {
+        const text = query.normalize('NFKC').trim().toLowerCase().replace(/[.!?,;:।🙏👋😊]+$/gu, '').trim();
+        if (/^(?:h+i+|hello+|hey+|hlw|hlo|helo|hellow|good (?:morning|afternoon|evening))(?:\s+(?:gpa|assistant|bot))?$/u.test(text)) {
+            return 'Hi! Welcome to GPA Assistant. How can I help you with college notices or information today?';
+        }
+        if (['नमस्ते', 'नमस्कार', 'हाय', 'हेलो'].includes(text)) return 'नमस्ते! GPA Assistant में आपका स्वागत है। कॉलेज की सूचनाओं या जानकारी के बारे में मैं आपकी कैसे मदद कर सकता हूँ?';
+        if (['thanks', 'thank you', 'thankyou', 'thx', 'ty', 'धन्यवाद', 'शुक्रिया'].includes(text)) return 'You’re welcome! Let me know if you need help with anything else about GPA.';
+        if (['how are you', 'how are you doing', 'how r u'].includes(text)) return 'I’m here and ready to help! What would you like to know about GPA?';
+        if (['help', 'help me', 'what can you do', 'who are you'].includes(text)) return 'I’m GPA Assistant. I can help you understand uploaded college notices, find deadlines, and ask about admissions, exams or campus facilities. Ask in English or Hindi.';
+        if (['bye', 'goodbye', 'see you', 'good night', 'goodnight'].includes(text)) return 'Goodbye! You can come back whenever you need help with GPA notices or college information.';
+        return null;
     }
 
     // ─── Call RAG Backend ───

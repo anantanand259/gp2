@@ -19,6 +19,24 @@ test('failed health check still queries KB and preserves a refusal', async () =>
     assert.equal((await bot.processQuery('Question')).source, 'rag');
 });
 
+test('hi and hlw reply immediately without a backend request', async () => {
+    const bot = chatbot();
+    bot._callRAGBackend = () => { throw new Error('Greeting must not query the backend'); };
+    for (const text of ['hi', 'HI!', 'hlw', 'hello', 'hlo', 'नमस्ते 🙏', 'thank you']) {
+        const result = await bot.processQuery(text);
+        assert.equal(result.source, 'conversation');
+        assert.ok(result.answer.length > 0);
+    }
+});
+
+test('a greeting followed by a factual question still queries the KB', async () => {
+    const bot = chatbot();
+    let queried = false;
+    bot._callRAGBackend = async () => { queried = true; return { answer:'From the notice', source_type:'rag' }; };
+    await bot.processQuery('Hi, when is my exam?');
+    assert.equal(queried, true);
+});
+
 test('backend errors never switch to general knowledge', async () => {
     const bot = chatbot();
     bot._callRAGBackend = async () => { throw new Error('Timeout'); };

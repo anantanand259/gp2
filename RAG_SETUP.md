@@ -44,6 +44,11 @@ provider quota unless a working OpenRouter key is configured.
 
 ### Automatic model fallback and multiple users
 
+Greetings and small talk (`hi`, `hello`, `hlw`, Hindi greetings, thanks, help
+and goodbyes) have direct responses without model calls. The browser can answer
+them even when the Python backend is disconnected. Only whole-message matches
+use this path; “Hi, when is my exam?” still queries the knowledge base.
+
 The Python backend tries configured OpenRouter, Groq and Gemini routes in that
 order. Gemini includes both `gemini-2.5-flash` and `gemini-2.5-flash-lite` by
 default. Keys and model order are configured in `.env`; see `.env.example`.
