@@ -134,6 +134,19 @@
     .quick-action-btn { min-height: 54px; padding: 10px 11px; }
     .chatbot-college-link { margin-top: 12px; }
 }
+@media (max-height: 700px) and (min-width: 577px) {
+    .chatbot-messages { padding: 12px 18px; }
+    .chatbot-welcome { padding-bottom: 12px; }
+    .chatbot-welcome-icon { width: 40px; height: 40px; margin-bottom: 8px; }
+    .chatbot-welcome-icon img { width: 34px; height: 34px; }
+    .chatbot-eyebrow { font-size: 8px; margin-bottom: 6px; }
+    .chatbot-welcome h3 { font-size: 21px; line-height: 1.15; margin-bottom: 6px; }
+    .chatbot-welcome p { line-height: 1.5; }
+    .chatbot-starter-label { font-size: 9px; margin-bottom: 8px; }
+    .quick-action-btn { min-height: 50px; padding: 8px 10px; }
+    .quick-action-btn strong { font-size: 11px; }
+    .quick-action-btn small { font-size: 9px; margin-top: 2px; }
+}
 @media (max-width: 576px) {
     .chatbot-trigger { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); height: 54px; }
     .chatbot-window { inset: 0; width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; transform-origin: bottom center; }
