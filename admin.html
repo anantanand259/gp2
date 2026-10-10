@@ -919,7 +919,7 @@
                     if (!silent) hideLoading();
                     return;
                 }
-                if (res.ok) {
+                if (res.ok && data.retriever_ready === true) {
                     if (!silent) showAlert(`✅ Connected to RAG Backend! (v${data.version})`, 'success');
                     console.log('Backend connected:', data);
                     if (document.getElementById('statChunks')) {
@@ -929,7 +929,7 @@
                         document.getElementById('statEmbedded').textContent = data.total_chunks || 0;
                     }
                 } else {
-                    if (!silent) showAlert(`Backend reached but error: ${data.error || res.status}`, 'warning');
+                    if (!silent) showAlert(`Knowledge base is not ready: ${data.error || 'check the Python backend and proxy configuration'}`, 'warning');
                 }
             } catch (e) {
                 if (!silent) {
@@ -1055,72 +1055,33 @@
                 return;
             }
 
-            showLoading('Chunking text & generating embeddings...');
-
+            showLoading('Saving to the college knowledge base...');
             try {
+                const id = editId || Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+                const res = await fetch(`${RAG_BACKEND_URL}/api/rag/add-text`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, content, entry_id: id,
+                        date: new Date().toISOString().split('T')[0], reference: 'MANUAL_ENTRY' })
+                });
+                const data = await res.json();
+                if (!res.ok || data.status !== 'ok' || !(data.chunks_added > 0)) {
+                    throw new Error(data.error || 'The backend did not index this entry.');
+                }
                 const kb = getKB();
-
-                // If editing, remove old entry
-                if (editId) {
-                    kb.entries = kb.entries.filter(e => e.id !== editId);
-                    kb.chunks = kb.chunks.filter(c => c.entryId !== editId);
-                }
-
-                const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-                const entry = { id, title, content, createdAt: new Date().toISOString() };
-
-                // Chunk content
-                const chunks = chunkText(content, CHUNK_SIZE, CHUNK_OVERLAP);
-
-                // Generate embeddings via proxy
-                const embeddedChunks = [];
-                for (let i = 0; i < chunks.length; i++) {
-                    const contextualChunk = `${title}: ${chunks[i]}`;
-                    let embedding = null;
-
-                    try {
-                        document.getElementById('loadingText').textContent =
-                            `Embedding chunk ${i + 1} of ${chunks.length}...`;
-                        embedding = await getEmbedding(contextualChunk);
-                    } catch (e) {
-                        console.warn('Embedding failed for chunk', i, e);
-                    }
-
-                    embeddedChunks.push({ entryId: id, text: contextualChunk, embedding });
-                }
-
-                kb.entries.push(entry);
-                kb.chunks.push(...embeddedChunks);
+                kb.entries = kb.entries.filter(e => e.id !== id);
+                kb.chunks = kb.chunks.filter(c => c.entryId !== id);
+                kb.entries.push({ id, title, content, createdAt: new Date().toISOString() });
+                kb.chunks.push(...chunkText(content, CHUNK_SIZE, CHUNK_OVERLAP).map(text =>
+                    ({ entryId: id, text: `${title}: ${text}`, embedding: null })));
                 saveKB(kb);
-
-                // Proactively push manual text entry to live Python RAG backend so chatbot can query it
-                try {
-                    const res = await fetch(`${RAG_BACKEND_URL}/api/rag/add-text`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            title: title,
-                            content: content,
-                            date: new Date().toISOString().split('T')[0],
-                            reference: 'MANUAL_ENTRY'
-                        })
-                    });
-                    if (res.ok) {
-                        console.log('Successfully pushed manual text entry to live Python RAG Backend.');
-                    } else {
-                        console.warn('Backend returned non-ok status when adding text context.');
-                    }
-                } catch (backendErr) {
-                    console.warn('Could not push to backend immediately:', backendErr.message);
-                }
-
                 hideAddForm();
                 refreshEntries();
                 updateStats();
-                testBackendHealth(true); // Sync real backend chunk numbers
-                showAlert(`Entry "${title}" saved locally and pushed to RAG Backend!`, 'success');
+                testBackendHealth(true);
+                showAlert(`Entry "${title}" indexed in the college knowledge base.`, 'success');
             } catch (e) {
-                showAlert(`Error saving entry: ${e.message}`, 'danger');
+                showAlert(`Entry was not saved: ${e.message}`, 'danger');
             }
 
             hideLoading();
@@ -1295,12 +1256,13 @@
         let data = null;
         try { data = JSON.parse(rawText); } catch (_) {}
 
-        if (!response.ok || !data) {
+        if (!response.ok || !data || data.status !== 'ok') {
             const detail = data?.error || rawText.slice(0, 150).replace(/\s+/g, ' ');
             throw new Error(`HTTP ${response.status} from ${url} — ${detail}`);
         }
 
         const added = data.chunks ?? data.new_chunks ?? data.chunks_added ?? 0;
+        if (added <= 0) throw new Error('The backend did not index any readable content.');
         showAlert(`✅ ${file.name} processed successfully. Added ${added} chunks.`, 'success');
 
         // Show the uploaded file in the entries table

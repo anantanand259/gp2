@@ -39,7 +39,7 @@ const CHATBOT_CONFIG = {
     STORAGE_KEY_HISTORY: 'gpa_chatbot_history',
 
     // RAG settings
-    RAG_TIMEOUT: 15000,  // 15s timeout for RAG backend calls
+    RAG_TIMEOUT: 90000,  // Includes retrieval, grounded generation and provider retry
 };
 
 // System prompt shared by all LLM calls
@@ -129,12 +129,12 @@ class ChatbotUI {
 
             if (response.ok) {
                 const data = await response.json();
-                this.ragAvailable = true;
+                this.ragAvailable = data.retriever_ready === true;
                 console.log(`[Chatbot] ✅ RAG backend connected — ${data.total_chunks} chunks, ${data.total_documents} docs`);
             }
         } catch (e) {
             this.ragAvailable = false;
-            console.log('[Chatbot] ⚠️ RAG backend not available — using LLM-only mode');
+            console.log('[Chatbot] ⚠️ RAG backend unavailable; queries will retry the backend');
         }
     }
 
@@ -328,36 +328,26 @@ class ChatbotUI {
     }
 
     async processQuery(query) {
-        // ── STEP 1: Try RAG Backend for ALL queries ──
-        if (this.ragAvailable) {
-            try {
-                console.log('[Chatbot] 🔍 Querying RAG backend...');
-                const ragResult = await this._callRAGBackend(query);
-
-                if (ragResult && ragResult.answer) {
-                    // Use RAG answer if it found chunks OR if it explicitly says it's from internet
-                    if (ragResult.chunk_count > 0 || ragResult.source_type === 'internet') {
-                        if (!ragResult.answer.includes('specific information is not available')) {
-                            console.log(`[Chatbot] ✅ RAG response — ${ragResult.source_type || 'kb'}`);
-                            return {
-                                answer: ragResult.answer,
-                                source: ragResult.source_type === 'internet' ? 'llm' : 'rag',
-                                sources: ragResult.sources || []
-                            };
-                        }
-                    }
-                }
-                console.log('[Chatbot] ℹ️ RAG returned no relevant results, falling back to local LLM engine');
-            } catch (e) {
-                console.warn('[Chatbot] ⚠️ RAG backend error, falling back to LLM:', e.message);
+        // Only the backend may decide that the KB lacks an answer. A network
+        // error, health-check race, or refusal must never bypass uploaded notices.
+        CHATBOT_CONFIG.RAG_BACKEND_URL = localStorage.getItem('gpa_rag_url') || CHATBOT_CONFIG.RAG_BACKEND_URL;
+        try {
+            const result = await this._callRAGBackend(query);
+            if (!result || typeof result.answer !== 'string' || !result.answer.trim()) {
+                throw new Error('Invalid response from knowledge base');
             }
+            this.ragAvailable = true;
+            return {
+                answer: result.answer,
+                source: result.source_type === 'internet' ? 'internet' :
+                    result.source_type === 'rag' ? 'rag' : 'none',
+                sources: result.sources || []
+            };
+        } catch (error) {
+            this.ragAvailable = false;
+            console.warn('[Chatbot] Knowledge base query failed:', error.message);
+            throw new Error('I could not check the college knowledge base. Please try again when the backend is available.');
         }
-
-        // ── STEP 2: Direct LLM call via proxy (Internet / General Knowledge Fallback) ──
-        const prompt = `USER QUESTION: ${query}\n\nAnswer this question using your general knowledge, or if it relates to GPA college, use the quick facts from your system prompt.`;
-        
-        const answer = await this.callLLM(prompt);
-        return { answer, source: 'llm' };
     }
 
     // ─── Call RAG Backend ───
@@ -372,8 +362,6 @@ class ChatbotUI {
                 body: JSON.stringify({ query }),
                 signal: controller.signal
             });
-            clearTimeout(timeout);
-
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
                 throw new Error(err.error || `RAG error: ${response.status}`);
@@ -381,11 +369,12 @@ class ChatbotUI {
 
             return await response.json();
         } catch (e) {
-            clearTimeout(timeout);
             if (e.name === 'AbortError') {
                 throw new Error('RAG backend timed out');
             }
             throw e;
+        } finally {
+            clearTimeout(timeout);
         }
     }
 
@@ -586,8 +575,8 @@ class ChatbotUI {
         let sourceTag = '';
         if (source === 'rag') {
             sourceTag = `<div class="msg-source"><i class="fas fa-database"></i> From Knowledge Base</div>`;
-        } else if (source === 'llm') {
-            sourceTag = `<div class="msg-source" style="color: #6b7280; border-color: #d1d5db;"><i class="fas fa-globe"></i> From Internet / AI</div>`;
+        } else if (source === 'internet') {
+            sourceTag = `<div class="msg-source" style="color: #6b7280; border-color: #d1d5db;"><i class="fas fa-globe"></i> From Web Search (not a college notice)</div>`;
         }
 
         msgDiv.innerHTML = `

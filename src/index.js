@@ -62,6 +62,9 @@ export default {
                     embed: EMBED_MODEL,
                 }
             };
+            if (path === '/api/health') {
+                return corsResponse(await handleRAGProxy(request, env), origin);
+            }
             const response = jsonResponse(healthData, 200);
             // Add CORS headers if origin is present and allowed
             if (origin && isAllowedOrigin(origin)) {

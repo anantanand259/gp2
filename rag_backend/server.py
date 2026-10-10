@@ -19,6 +19,9 @@ import shutil
 import logging
 import traceback
 import requests
+import hashlib
+from threading import RLock
+from werkzeug.utils import secure_filename
 from pathlib import Path
 from typing import List, Optional
 
@@ -109,7 +112,7 @@ for d in [INPUT_DIR, PROCESSED_DIR, CHROMA_DIR]:
 from google import genai
 from google.genai import types
 
-client = genai.Client()
+client = genai.Client(http_options=types.HttpOptions(timeout=25000))
 log.info('✅ Gemini client ready.')
 
 # ─────────────────────────────────────────────────────────────
@@ -195,8 +198,17 @@ def extract_from_pdf(pdf_path: str) -> AcademicNoticeSchema:
             full_text += page_text + '\n\n'
 
     full_text = full_text.strip()
-    if not full_text:
-        raise ValueError(f'No text extracted from PDF: {pdf_path}')
+    if not full_text or any(not (page.extract_text() or '').strip() for page in reader.pages):
+        # Scanned PDFs (or mixed text/scanned pages) need visual extraction.
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[types.Part.from_bytes(data=Path(pdf_path).read_bytes(), mime_type='application/pdf'), EXTRACTION_PROMPT],
+            config=types.GenerateContentConfig(response_mime_type='application/json',
+                                              response_schema=AcademicNoticeSchema, temperature=0)
+        )
+        if not response.parsed or not response.parsed.main_body_content:
+            raise ValueError(f'No readable content extracted from PDF: {Path(pdf_path).name}')
+        return response.parsed
 
     return AcademicNoticeSchema(
         main_body_content=full_text,
@@ -265,9 +277,9 @@ from langchain_core.documents import Document
 def create_chunks(structured_notice: AcademicNoticeSchema) -> List[Document]:
     """Create contextual chunks from structured notice data."""
     global_metadata = {
-        'issuing_authority': structured_notice.issuing_authority,
+        'issuing_authority': structured_notice.issuing_authority or 'Unknown',
         'reference_number':  structured_notice.reference_number or 'UNKNOWN_REF',
-        'date_issued':       structured_notice.date_issued,
+        'date_issued':       structured_notice.date_issued or 'Unknown',
         'subject':           structured_notice.subject_line or 'General Administrative Notice'
     }
 
@@ -366,8 +378,10 @@ def load_processed_log() -> list:
     return []
 
 def save_processed_log(log_data: list):
-    with open(LOG_FILE, 'w') as f:
+    pending = LOG_FILE.with_suffix('.tmp')
+    with open(pending, 'w', encoding='utf-8') as f:
         json.dump(log_data, f)
+    pending.replace(LOG_FILE)
 
 def load_bm25_docs() -> list:
     if BM25_FILE.exists():
@@ -376,33 +390,52 @@ def load_bm25_docs() -> list:
     return []
 
 def save_bm25_docs(docs: list):
-    with open(BM25_FILE, 'w', encoding='utf-8') as f:
+    pending = BM25_FILE.with_suffix('.tmp')
+    with open(pending, 'w', encoding='utf-8') as f:
         json.dump(docs, f, indent=2, ensure_ascii=False)
+    pending.replace(BM25_FILE)
 
-def build_hybrid_retriever(new_documents: list):
+def build_hybrid_retriever(new_documents: list, replace_entry_id=None):
     """Build or rebuild the hybrid retriever with optional new documents."""
     vector_store = Chroma(
         persist_directory=str(CHROMA_DIR),
         embedding_function=embedding_model
     )
 
-    if new_documents:
-        vector_store.add_documents(new_documents)
-
-    semantic_retriever = vector_store.as_retriever(search_kwargs={'k': 4})
+    semantic_retriever = vector_store.as_retriever(search_kwargs={'k': 12})
 
     # Merge BM25 docs
     existing_docs = load_bm25_docs()
+    if replace_entry_id:
+        existing_docs = [d for d in existing_docs if d.get('metadata', {}).get('entry_id') != replace_entry_id]
     new_doc_dicts = [{'content': d.page_content, 'metadata': d.metadata} for d in new_documents]
-    all_docs = existing_docs + new_doc_dicts
+    unique_docs = {}
+    for doc in existing_docs + new_doc_dicts:
+        doc['metadata'] = {k: v for k, v in doc.get('metadata', {}).items() if v is not None}
+        identity = hashlib.sha256(json.dumps(doc, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        unique_docs[identity] = doc
+    all_docs = list(unique_docs.values())
+    if all_docs:
+        # Stable IDs make retries safe and restore vector data from the lexical
+        # index if an earlier upload only populated one of the two stores.
+        vector_store.add_documents([
+            Document(page_content=d['content'], metadata=d['metadata']) for d in all_docs
+        ], ids=list(unique_docs))
+    if replace_entry_id:
+        old_ids = vector_store.get(where={'entry_id': replace_entry_id})['ids']
+        obsolete = [doc_id for doc_id in old_ids if doc_id not in unique_docs]
+        if obsolete:
+            vector_store.delete(ids=obsolete)
     save_bm25_docs(all_docs)
 
     retrievers = [semantic_retriever]
     weights    = [1.0]
 
     if all_docs:
-        bm25_retriever   = BM25Retriever.from_texts([d['content'] for d in all_docs])
-        bm25_retriever.k = 4
+        bm25_retriever = BM25Retriever.from_documents([
+            Document(page_content=d['content'], metadata=d.get('metadata', {})) for d in all_docs
+        ])
+        bm25_retriever.k = 12
         retrievers.append(bm25_retriever)
         weights = [0.6, 0.4]
 
@@ -427,7 +460,7 @@ def get_file_type(filename: str) -> Optional[str]:
             return ftype
     return None
 
-def ingest_documents():
+def ingest_documents(fail_on_error=False):
     """Scan input_docs/ for new files and process them."""
     processed_files = load_processed_log()
     all_files = [f for f in os.listdir(INPUT_DIR) if not f.startswith('.')]
@@ -454,9 +487,19 @@ def ingest_documents():
             elif ftype == 'text':
                 notices = [extract_from_text(filepath)]
 
+            file_chunks = []
             for notice in notices:
                 chunks = create_chunks(notice)
-                documents_to_add.extend(chunks)
+                for chunk in chunks:
+                    chunk.metadata['filename'] = filename
+                file_chunks.extend(chunks)
+
+            if not file_chunks:
+                raise ValueError(f'No readable content in {filename}')
+
+            # Index first. A file is marked processed only after indexing succeeds.
+            build_hybrid_retriever(file_chunks)
+            documents_to_add.extend(file_chunks)
 
             # Move to processed
             shutil.move(filepath, str(PROCESSED_DIR / filename))
@@ -466,6 +509,8 @@ def ingest_documents():
         except Exception as e:
             log.error(f'     ❌ Failed: {e}')
             log.debug(traceback.format_exc())
+            if fail_on_error:
+                raise
 
     save_processed_log(processed_files)
     return documents_to_add
@@ -473,131 +518,24 @@ def ingest_documents():
 # Run initial ingestion
 log.info('⏳ Running initial document ingestion...')
 initial_docs = ingest_documents()
-hybrid_retriever = build_hybrid_retriever(initial_docs)
+hybrid_retriever = build_hybrid_retriever([])
+kb_lock = RLock()
 log.info(f'✅ Retriever ready. New chunks: {len(initial_docs)}, Total BM25: {len(load_bm25_docs())}')
 
 # ─────────────────────────────────────────────────────────────
 # RAG QUERY FUNCTION
 # ─────────────────────────────────────────────────────────────
-GPA_SYSTEM_PROMPT = '''
-You are "GPA Assistant" — an intelligent chatbot for
-Government Polytechnic Adityapur (GPA), Jamshedpur, Jharkhand.
+from rag_answers import answer_query
 
-- Answer ONLY using the provided CONTEXT. Do not use outside knowledge or internet surfing.
-- If the context lacks the answer, politely say: "This specific information is not available in our knowledge base. Please contact the college directly or visit gpa.ac.in."
-- Keep answers concise, factual, and extremely professional. Use well-formatted markdown.
-- Preserve Hindi text as-is. Do NOT hallucinate dates, numbers, or names.
-- Use bullet points and bold text for readability.
-- IMPORTANT: Under no circumstances should you answer general questions (math, science, general knowledge) that are not in the context. Always politely decline them.
-'''
 
 def generate_rag_answer(user_query: str) -> dict:
-    """Generate answer using RAG pipeline: retrieve → augment → generate."""
-    global hybrid_retriever
+    with kb_lock:
+        retriever = hybrid_retriever
+        documents = [Document(page_content=d['content'], metadata=d.get('metadata', {}))
+                     for d in load_bm25_docs()]
+    return answer_query(user_query, retriever, client, OPENROUTER_API_KEY, OPENROUTER_MODEL,
+                        all_documents=documents)
 
-    retrieved_docs = hybrid_retriever.invoke(user_query)
-
-    if not retrieved_docs:
-        log.info('ℹ️ No context found in KB, falling back to Internet (OpenRouter)...')
-        try:
-            # General knowledge fallback
-            headers = {
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer": "https://gpa.ac.in",
-                "X-Title": "GPA Assistant RAG",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": OPENROUTER_MODEL,
-                "messages": [
-                    {"role": "system", "content": "You are a helpful assistant. If the user asks about Government Polytechnic Adityapur (GPA), give general information. For other queries, answer normally using your general knowledge."},
-                    {"role": "user", "content": user_query}
-                ],
-                "temperature": 0.7
-            }
-            response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=20)
-            if response.status_code == 200:
-                answer_text = response.json()['choices'][0]['message']['content']
-                return {
-                    'answer': answer_text,
-                    'sources': [],
-                    'chunk_count': 0,
-                    'source_type': 'internet'
-                }
-        except Exception as e:
-            log.warning(f'⚠️ Internet fallback failed: {e}')
-
-        return {
-            'answer': 'This specific information is not available in our knowledge base and I could not reach the internet for an answer. Please contact the college directly or visit [gpa.ac.in](https://www.gpa.ac.in).',
-            'sources': [],
-            'chunk_count': 0,
-            'source_type': 'none'
-        }
-
-    context_blocks = []
-    sources = []
-    for i, doc in enumerate(retrieved_docs, 1):
-        context_blocks.append(f'[Source {i}]: {doc.page_content}')
-        meta = doc.metadata if hasattr(doc, 'metadata') and doc.metadata else {}
-        sources.append({
-            'index':     i,
-            'reference': meta.get('reference_number', 'N/A'),
-            'date':      meta.get('date_issued', 'N/A'),
-            'subject':   meta.get('subject', 'N/A'),
-            'authority': meta.get('issuing_authority', 'N/A')
-        })
-
-    context = '\n\n---\n\n'.join(context_blocks)
-    
-    # ── Generate Answer via OpenRouter (Llama 3.3 70B) ──
-    try:
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "HTTP-Referer": "https://gpa.ac.in",
-            "X-Title": "GPA Assistant RAG",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": OPENROUTER_MODEL,
-            "messages": [
-                {"role": "system", "content": GPA_SYSTEM_PROMPT},
-                {"role": "user", "content": f"CONTEXT:\n{context}\n\nUSER QUERY: {user_query}\n\nAnswer:"}
-            ],
-            "temperature": 0.3,
-            "max_tokens": 1024
-        }
-        
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            answer_text = response.json()['choices'][0]['message']['content']
-        else:
-            log.error(f"OpenRouter Error: {response.status_code} - {response.text}")
-            raise Exception(f"OpenRouter API failed: {response.status_code}")
-
-    except Exception as e:
-        log.warning(f"⚠️ OpenRouter failed, falling back to Gemini: {str(e)}")
-        # Fallback to Gemini
-        prompt = f'''{GPA_SYSTEM_PROMPT}\n\nCONTEXT:\n{context}\n\nUSER QUERY: {user_query}\n\nAnswer:'''
-        gemini_response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.2)
-        )
-        answer_text = gemini_response.text
-
-    return {
-        'answer': answer_text,
-        'sources': sources,
-        'chunk_count': len(retrieved_docs),
-        'source_type': 'rag'
-    }
 
 log.info('✅ RAG query function ready.')
 
@@ -605,6 +543,7 @@ log.info('✅ RAG query function ready.')
 # FLASK APP
 # ─────────────────────────────────────────────────────────────
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 CORS(app, resources={r'/api/*': {'origins': ALLOWED_ORIGINS}})
 
 
@@ -686,13 +625,21 @@ def trigger_ingest():
             file = request.files['file']
             if file and file.filename:
                 # Save the uploaded file to the input_docs directory
-                save_path = INPUT_DIR / file.filename
+                filename = secure_filename(file.filename)
+                if not filename or not get_file_type(filename):
+                    return jsonify({'error': 'Unsupported file type. Use PDF, image, JSON, TXT, MD or CSV.'}), 400
+                if filename in load_processed_log():
+                    return jsonify({'error': 'A file with this name is already indexed. Rename the new notice before uploading.'}), 409
+                save_path = INPUT_DIR / filename
                 file.save(str(save_path))
                 log.info(f'📥 Uploaded new file to input_docs: {file.filename}')
 
         # Run ingestion on the directory
-        new_docs = ingest_documents()
-        hybrid_retriever = build_hybrid_retriever(new_docs)
+        with kb_lock:
+            new_docs = ingest_documents(fail_on_error=True)
+            hybrid_retriever = build_hybrid_retriever([])
+        if 'file' in request.files and not new_docs:
+            return jsonify({'error': 'No readable content was indexed from the uploaded file.'}), 422
         
         return jsonify({
             'status': 'ok',
@@ -715,6 +662,8 @@ def add_text_entry():
 
     title   = data.get('title', 'Manual Entry')
     content = data['content']
+    if not isinstance(content, str) or not content.strip():
+        return jsonify({'error': 'Content must be non-empty text.'}), 400
     date    = data.get('date', 'N/A')
     ref     = data.get('reference', 'MANUAL')
 
@@ -728,8 +677,14 @@ def add_text_entry():
             'subject': title,
             'issuing_authority': 'Manual Entry'
         }
+        entry_id = data.get('entry_id')
+        if entry_id:
+            if not isinstance(entry_id, str):
+                return jsonify({'error': 'entry_id must be text.'}), 400
+            metadata['entry_id'] = entry_id
         docs = [Document(page_content=header + c, metadata=metadata) for c in chunks]
-        hybrid_retriever = build_hybrid_retriever(docs)
+        with kb_lock:
+            hybrid_retriever = build_hybrid_retriever(docs, replace_entry_id=entry_id)
 
         return jsonify({
             'status': 'ok',
