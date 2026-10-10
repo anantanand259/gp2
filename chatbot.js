@@ -121,7 +121,7 @@ class ChatbotUI {
         let timeout;
         try {
             const controller = new AbortController();
-            timeout = setTimeout(() => controller.abort(), 5000);
+            timeout = setTimeout(() => controller.abort(), 90000);
 
             const response = await fetch(`${CHATBOT_CONFIG.RAG_BACKEND_URL}/api/health`, {
                 signal: controller.signal

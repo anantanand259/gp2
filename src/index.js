@@ -129,7 +129,11 @@ async function handleRAGProxy(request, env) {
     }
 
     const url = new URL(request.url);
-    const targetUrl = `${backendUrl.replace(/\/$/, '')}${url.pathname}`;
+    // A trailing DNS dot is valid syntactically but Render rejects it in Host.
+    // Canonicalize the origin before forwarding, rather than routing to a 404.
+    const backendOrigin = new URL(backendUrl.trim());
+    backendOrigin.hostname = backendOrigin.hostname.replace(/\.$/, '');
+    const targetUrl = new URL(url.pathname, backendOrigin.origin).href;
 
     // Prepare headers: exclude 'host' to avoid ngrok routing issues
     const filteredHeaders = new Headers();
@@ -156,6 +160,15 @@ async function handleRAGProxy(request, env) {
         const contentType = upstreamResponse.headers.get('Content-Type') || '';
         if (!contentType.includes('application/json')) {
             const bodySnippet = await upstreamResponse.text();
+            if (backendOrigin.hostname.endsWith('.onrender.com') &&
+                [502, 503, 504].includes(upstreamResponse.status)) {
+                return jsonResponse({
+                    code: 'BACKEND_TEMPORARILY_UNAVAILABLE',
+                    error: 'The Render backend is starting or temporarily unavailable. Please wait and retry. If this continues, check the Render service logs.',
+                    retry_after_seconds: 5,
+                    upstream_status: upstreamResponse.status
+                }, 503);
+            }
             const isNgrokError = bodySnippet.includes('ngrok') || bodySnippet.includes('ERR_NGROK');
             const isTunnelDown = bodySnippet.includes('tunnel') || bodySnippet.includes('offline');
             let hint = 'The RAG backend returned a non-JSON response.';

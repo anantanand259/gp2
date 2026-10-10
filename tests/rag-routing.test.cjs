@@ -85,3 +85,35 @@ test('admin inline scripts compile', () => {
     const html = fs.readFileSync('admin.html', 'utf8');
     for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) new vm.Script(match[1]);
 });
+
+test('proxy canonicalizes a trailing DNS dot in the Render URL', async () => {
+    const source = fs.readFileSync('src/index.js', 'utf8');
+    const worker = (await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'))).default;
+    const originalFetch = global.fetch;
+    try {
+        global.fetch = async upstream => {
+            assert.equal(upstream.url, 'https://gpa-rag-backend-o9v7.onrender.com/api/health');
+            return Response.json({ retriever_ready: true });
+        };
+        const result = await worker.fetch(new Request('https://proxy.test/api/health'),
+            { RAG_BACKEND_URL: ' https://gpa-rag-backend-o9v7.onrender.com./ ' }, {});
+        assert.equal(result.status, 200);
+        assert.equal((await result.json()).retriever_ready, true);
+    } finally { global.fetch = originalFetch; }
+});
+
+test('Render temporary non-JSON failure gives a retryable hosting message', async () => {
+    const source = fs.readFileSync('src/index.js', 'utf8');
+    const worker = (await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'))).default;
+    const originalFetch = global.fetch;
+    try {
+        global.fetch = async () => new Response('', { status: 503 });
+        const result = await worker.fetch(new Request('https://proxy.test/api/health'),
+            { RAG_BACKEND_URL: 'https://gpa-rag-backend-o9v7.onrender.com' }, {});
+        assert.equal(result.status, 503);
+        const body = await result.json();
+        assert.equal(body.code, 'BACKEND_TEMPORARILY_UNAVAILABLE');
+        assert.equal(body.retry_after_seconds, 5);
+        assert.match(body.error, /Render/);
+    } finally { global.fetch = originalFetch; }
+});
