@@ -25,6 +25,7 @@ from werkzeug.utils import secure_filename
 from backend_errors import describe_query_error
 from llm_pool import LLMPool, configured_key
 from query_cache import QueryCache
+from deployment_config import storage_base, server_port, allowed_origins
 from pathlib import Path
 from typing import List, Optional
 
@@ -70,12 +71,10 @@ NGROK_AUTH_TOKEN = os.getenv('NGROK_AUTH_TOKEN', 'YOUR_NGROK_AUTH_TOKEN')
 # Example: 'G:/My Drive/GPA_Knowledge_Base'
 DRIVE_PATH = os.environ.get('GOOGLE_DRIVE_PATH')
 
-if DRIVE_PATH:
-    BASE_DIR = Path(DRIVE_PATH)
-    log.info(f'📁 Using Google Drive storage: {BASE_DIR}')
-else:
-    BASE_DIR = Path(__file__).parent
-    log.info(f'📁 Using local storage: {BASE_DIR}')
+BASE_DIR = storage_base(os.environ, Path(__file__).parent)
+log.info(f'📁 Using storage: {BASE_DIR}')
+if os.getenv('RENDER') and not os.getenv('RAG_STORAGE_DIR'):
+    log.warning('Render storage is temporary: uploaded notices will be lost on restart/redeploy.')
 
 KB_DIR         = BASE_DIR / 'knowledge_base'
 INPUT_DIR      = KB_DIR / 'input_docs'
@@ -86,10 +85,10 @@ BM25_FILE      = KB_DIR / 'bm25_docs.json'
 
 # Server config
 HOST = '0.0.0.0'
-PORT = int(os.environ.get('RAG_PORT', 5000))
+PORT = server_port(os.environ)
 
 # Allowed origins for CORS
-ALLOWED_ORIGINS = [
+ALLOWED_ORIGINS = allowed_origins(os.environ, [
     'https://anantanand259.github.io',
     'http://localhost:3000',
     'http://localhost:5500',
@@ -97,7 +96,7 @@ ALLOWED_ORIGINS = [
     'http://localhost:8080',
     'http://127.0.0.1:8080',
     '*',  # Allow all during development — restrict in production
-]
+])
 
 # Logger moved up to avoid NameError during initialization
 
@@ -337,7 +336,10 @@ class OnnxMiniLMEmbeddings(Embeddings):
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
         self.tokenizer.enable_truncation(max_length=256)
         self.tokenizer.enable_padding(length=256)
-        self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = int(os.getenv('ONNX_NUM_THREADS', '1'))
+        options.inter_op_num_threads = 1
+        self.session = ort.InferenceSession(model_path, sess_options=options, providers=['CPUExecutionProvider'])
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         if not texts:

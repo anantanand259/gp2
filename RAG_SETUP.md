@@ -111,6 +111,10 @@ delete server documents. This fix does not implement backend deletion.
 
 ## Validation
 
+For Render hosting, see [RENDER_DEPLOY.md](RENDER_DEPLOY.md). The supplied
+Blueprint uses the free plan with temporary storage; durable uploads require
+an external storage integration or a paid persistent disk.
+
 On diagnosis, the public RAG endpoint returned HTTP 500 with Google's
 `API_KEY_INVALID` error. The local backend health reported zero indexed chunks.
 A listening backend does not establish that its provider keys work. Update its

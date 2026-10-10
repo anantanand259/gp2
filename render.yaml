@@ -1,0 +1,32 @@
+# Free demonstration service: uploaded KB data does NOT survive restarts.
+services:
+  - type: web
+    name: gpa-rag-backend
+    runtime: python
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: pip install -r requirements-render.txt && python rag_backend/download_models.py
+    startCommand: gunicorn --chdir rag_backend --config gunicorn.conf.py server:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.14
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: HF_HOME
+        value: /opt/render/project/src/.cache/huggingface
+      - key: ONNX_NUM_THREADS
+        value: "1"
+      - key: RAG_INGEST_ON_STARTUP
+        value: "0"
+      - key: RAG_ALLOWED_ORIGINS
+        value: https://anantanand259.github.io,https://gp2.anantanand259.workers.dev
+      - key: LLM_PROVIDER_ORDER
+        value: openrouter,groq,gemini
+      - key: LLM_MAX_CONCURRENCY
+        value: "2"
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false

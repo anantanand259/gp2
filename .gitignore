@@ -19,6 +19,8 @@ chroma_db/
 knowledge_base/chroma_db/
 knowledge_base/processed_log.json
 knowledge_base/bm25_docs.json
+rag_backend/knowledge_base/
+.cache/
 
 # Node & Wrangler
 node_modules/
