@@ -461,10 +461,11 @@ def get_file_type(filename: str) -> Optional[str]:
             return ftype
     return None
 
-def ingest_documents(fail_on_error=False):
-    """Scan input_docs/ for new files and process them."""
+def ingest_documents(fail_on_error=False, filenames=None):
+    """Process selected uploads, or scan pending files when no selection is given."""
     processed_files = load_processed_log()
-    all_files = [f for f in os.listdir(INPUT_DIR) if not f.startswith('.')]
+    all_files = filenames if filenames is not None else os.listdir(INPUT_DIR)
+    all_files = [f for f in all_files if not f.startswith('.')]
     new_files = [f for f in all_files if f not in processed_files and get_file_type(f)]
 
     log.info(f'🔍 Found {len(new_files)} new file(s) to process')
@@ -622,11 +623,14 @@ def trigger_ingest():
     """Re-scan input_docs/ and process new files. Optionally accepts a file upload."""
     global hybrid_retriever
     try:
-        # Check if a file was uploaded in the request
-        if 'file' in request.files:
-            file = request.files['file']
-            if file and file.filename:
-                # Save the uploaded file to the input_docs directory
+        # Keep file selection, saving and indexing in one serialized operation.
+        # An unrelated unreadable pending file must not block a new upload.
+        with kb_lock:
+            filename = None
+            if 'file' in request.files:
+                file = request.files['file']
+                if not file or not file.filename:
+                    return jsonify({'error': 'No file selected.'}), 400
                 filename = secure_filename(file.filename)
                 if not filename or not get_file_type(filename):
                     return jsonify({'error': 'Unsupported file type. Use PDF, image, JSON, TXT, MD or CSV.'}), 400
@@ -636,9 +640,8 @@ def trigger_ingest():
                 file.save(str(save_path))
                 log.info(f'📥 Uploaded new file to input_docs: {file.filename}')
 
-        # Run ingestion on the directory
-        with kb_lock:
-            new_docs = ingest_documents(fail_on_error=True)
+            new_docs = ingest_documents(fail_on_error=filename is not None,
+                                        filenames=[filename] if filename else None)
             hybrid_retriever = build_hybrid_retriever([])
         if 'file' in request.files and not new_docs:
             return jsonify({'error': 'No readable content was indexed from the uploaded file.'}), 422
@@ -649,6 +652,9 @@ def trigger_ingest():
             'total_chunks': len(load_bm25_docs()),
             'total_documents': len(load_processed_log())
         })
+    except ValueError as e:
+        log.error(f'❌ Invalid upload: {e}')
+        return jsonify({'error': str(e), 'code': 'UNREADABLE_DOCUMENT'}), 422
     except Exception as e:
         log.error(f'❌ Ingestion failed: {e}')
         return jsonify({'error': str(e)}), 500

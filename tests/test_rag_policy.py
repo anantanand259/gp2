@@ -136,6 +136,26 @@ class RoutingTests(unittest.TestCase):
         namespace['shutil'].move.assert_not_called()
         namespace['save_processed_log'].assert_not_called()
 
+    def test_selected_upload_ignores_unreadable_pending_image(self):
+        tree = ast.parse((ROOT / 'rag_backend/server.py').read_text(encoding='utf-8'))
+        func = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'ingest_documents')
+        namespace = {'load_processed_log': lambda: [], 'save_processed_log': Mock(),
+                     'os': SimpleNamespace(listdir=Mock(return_value=['unreadable.jpeg', 'new-notice.txt'])),
+                     'INPUT_DIR': Path('/input'), 'PROCESSED_DIR': Path('/processed'),
+                     'get_file_type': lambda name: 'image' if name.endswith('.jpeg') else 'text',
+                     'log': Mock(), 'extract_from_text': Mock(return_value=object()),
+                     'extract_from_image': Mock(side_effect=ValueError('No readable content')),
+                     'create_chunks': lambda _: [SimpleNamespace(metadata={})],
+                     'build_hybrid_retriever': Mock(), 'shutil': SimpleNamespace(move=Mock()),
+                     'traceback': SimpleNamespace(format_exc=lambda: '')}
+        exec(compile(ast.Module(body=[func], type_ignores=[]), '<ingestion>', 'exec'), namespace)
+        docs = namespace['ingest_documents'](fail_on_error=True, filenames=['new-notice.txt'])
+        self.assertEqual(len(docs), 1)
+        namespace['extract_from_image'].assert_not_called()
+        namespace['os'].listdir.assert_not_called()
+        namespace['save_processed_log'].assert_called_once_with(['new-notice.txt'])
+        self.assertEqual(docs[0].metadata['filename'], 'new-notice.txt')
+
 
 if __name__ == '__main__':
     unittest.main()

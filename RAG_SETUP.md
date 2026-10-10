@@ -26,6 +26,11 @@ new chunks; give an updated notice a new filename. Saving manual text waits for
 backend indexing. Subsequent edits of entries saved with this version replace
 their previous backend chunks using `entry_id`.
 
+The file upload endpoint processes only the selected file. An older unreadable
+pending image cannot block a new PDF, JSON or other supported upload. Explicit
+folder scans continue past failed files; unreadable selected uploads return
+HTTP 422 with `UNREADABLE_DOCUMENT` instead of an unrelated HTTP 500.
+
 ## Run and publish
 
 1. From `C:\AI_ML\gp2`, use the existing `.venv\Scripts\python.exe`.
