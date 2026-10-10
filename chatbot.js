@@ -118,14 +118,16 @@ class ChatbotUI {
 
     // ─── Check if RAG backend is available ───
     async checkRAGHealth() {
+        let timeout;
         try {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
+            timeout = setTimeout(() => controller.abort(), 5000);
 
             const response = await fetch(`${CHATBOT_CONFIG.RAG_BACKEND_URL}/api/health`, {
                 signal: controller.signal
             });
             clearTimeout(timeout);
+            this.ragAvailable = false;
 
             if (response.ok) {
                 const data = await response.json();
@@ -135,6 +137,9 @@ class ChatbotUI {
         } catch (e) {
             this.ragAvailable = false;
             console.log('[Chatbot] ⚠️ RAG backend unavailable; queries will retry the backend');
+        } finally {
+            clearTimeout(timeout);
+            this.updateServiceStatus();
         }
     }
 
@@ -149,6 +154,8 @@ class ChatbotUI {
         this.clearBtn = document.getElementById('chatbotClearBtn');
         this.adminBtn = document.getElementById('chatbotAdminBtn');
         this.badge = document.getElementById('chatbotBadge');
+        this.statusText = document.getElementById('chatbotStatusText');
+        this.serviceStatus = document.getElementById('chatbotServiceStatus');
     }
 
     bindEvents() {
@@ -163,7 +170,7 @@ class ChatbotUI {
         if (this.sendBtn) this.sendBtn.addEventListener('click', () => this.handleSend());
         if (this.input) {
             this.input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
                     e.preventDefault();
                     this.handleSend();
                 }
@@ -184,6 +191,19 @@ class ChatbotUI {
         // Escape to close
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.isOpen) this.close();
+            if (e.key === 'Tab' && this.isOpen) {
+                const controls = [...this.window.querySelectorAll('button, a[href], textarea')]
+                    .filter(el => !el.disabled && el.getClientRects().length);
+                const first = controls[0], last = controls[controls.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+            }
+        });
+        window.addEventListener('resize', () => {
+            if (!this.isOpen) return;
+            const mobile = window.innerWidth <= 576;
+            this.trigger.style.opacity = mobile ? '0' : '';
+            this.trigger.style.pointerEvents = mobile ? 'none' : '';
         });
 
         // Quick action buttons (delegated)
@@ -197,6 +217,8 @@ class ChatbotUI {
                         this.handleSend();
                     }
                 }
+                const copy = e.target.closest('.msg-copy');
+                if (copy) this.copyAnswer(copy);
             });
         }
     }
@@ -208,9 +230,19 @@ class ChatbotUI {
     }
 
     open() {
+        if (this.isOpen) return;
         this.isOpen = true;
+        this.window.inert = false;
         this.window.classList.add('open');
         this.trigger.classList.add('active');
+        this.trigger.setAttribute('aria-expanded', 'true');
+        this.trigger.setAttribute('aria-label', 'Close GPA Assistant chatbot');
+        this.previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        this.backgroundInertState = [...document.body.children]
+            .filter(el => ![this.window, this.overlay, this.trigger].includes(el) && !['SCRIPT', 'STYLE', 'LINK'].includes(el.tagName))
+            .map(el => ({ el, inert: el.inert }));
+        this.backgroundInertState.forEach(({ el }) => { el.inert = true; });
         if (this.overlay) this.overlay.classList.add('show');
         if (this.badge) this.badge.style.display = 'none';
 
@@ -221,8 +253,8 @@ class ChatbotUI {
         }
 
         setTimeout(() => {
-            if (this.input) this.input.focus();
-        }, 400);
+            if (this.isOpen) (window.innerWidth <= 576 ? this.closeBtn : this.input)?.focus();
+        }, 180);
 
         if (this.messagesContainer && this.messagesContainer.children.length === 0) {
             this.showWelcome();
@@ -234,43 +266,45 @@ class ChatbotUI {
         this.window.classList.remove('open');
         this.trigger.classList.remove('active');
         if (this.overlay) this.overlay.classList.remove('show');
+        this.window.inert = true;
+        this.trigger.setAttribute('aria-expanded', 'false');
+        this.trigger.setAttribute('aria-label', 'Open GPA Assistant chatbot');
+        document.body.style.overflow = this.previousOverflow || '';
+        (this.backgroundInertState || []).forEach(({ el, inert }) => { el.inert = inert; });
 
         // Restore trigger on mobile
         this.trigger.style.opacity = '';
         this.trigger.style.pointerEvents = '';
+        this.trigger.focus();
+    }
+
+    updateServiceStatus() {
+        if (this.statusText) this.statusText.textContent = this.ragAvailable ? 'Connected to GPA' : 'Connection unavailable';
+        if (this.serviceStatus) this.serviceStatus.classList.toggle('unavailable', !this.ragAvailable);
     }
 
     // ─── Welcome Message ───
     showWelcome() {
-        const ragBadge = this.ragAvailable
-            ? '<span style="color:#4ade80;font-size:0.75rem;">● Knowledge Base Connected</span>'
-            : '<span style="color:#facc15;font-size:0.75rem;">● LLM-Only Mode</span>';
-
         const welcomeHTML = `
             <div class="chatbot-welcome">
-                <div class="chatbot-welcome-icon">🎓</div>
-                <h4>Welcome to GPA Assistant!</h4>
-                <p>I can help you with college information, placements, notices, syllabus, and more. I strictly answer questions based on the GPA Knowledge Base.</p>
-                ${ragBadge}
+                <div class="chatbot-welcome-icon"><img src="assets/gpa-assistant-mark.svg" alt="" width="68" height="68"></div>
+                <span class="chatbot-eyebrow">YOUR CAMPUS COMPANION</span>
+                <h3>College updates,<br>made clear.</h3>
+                <p>Understand notices, check dates and find campus information. Ask in English or Hindi.</p>
             </div>
-            <div class="chatbot-quick-actions" style="justify-content: center;">
-                <button class="quick-action-btn" data-query="What departments are available?">
-                    <i class="fas fa-building-columns"></i> Departments
+            <div class="chatbot-starter-label">Start with a question</div>
+            <div class="chatbot-quick-actions">
+                <button class="quick-action-btn" data-query="Summarize the latest college notices and any important deadlines.">
+                    <i class="fas fa-file-lines" aria-hidden="true"></i><span><strong>Latest notices</strong><small>What should I know?</small></span><span class="starter-arrow" aria-hidden="true">↗</span>
                 </button>
-                <button class="quick-action-btn" data-query="Tell me about placements at GPA">
-                    <i class="fas fa-briefcase"></i> Placements
+                <button class="quick-action-btn" data-query="What does the knowledge base say about the exam schedule and registration deadlines?">
+                    <i class="fas fa-calendar-days" aria-hidden="true"></i><span><strong>Exams & dates</strong><small>Plan your next step</small></span><span class="starter-arrow" aria-hidden="true">↗</span>
                 </button>
                 <button class="quick-action-btn" data-query="What is the admission process?">
-                    <i class="fas fa-user-plus"></i> Admissions
+                    <i class="fas fa-graduation-cap" aria-hidden="true"></i><span><strong>Admissions</strong><small>Find your way to GPA</small></span><span class="starter-arrow" aria-hidden="true">↗</span>
                 </button>
-                <button class="quick-action-btn" data-query="Show latest notices">
-                    <i class="fas fa-bell"></i> Notices
-                </button>
-                <button class="quick-action-btn" data-query="Tell me about hostel facilities">
-                    <i class="fas fa-bed"></i> Hostel
-                </button>
-                <button class="quick-action-btn" data-query="Who are the faculty members?">
-                    <i class="fas fa-chalkboard-user"></i> Faculty
+                <button class="quick-action-btn" data-query="Tell me about campus facilities and hostel information.">
+                    <i class="fas fa-building-columns" aria-hidden="true"></i><span><strong>Campus life</strong><small>Facilities & student help</small></span><span class="starter-arrow" aria-hidden="true">↗</span>
                 </button>
             </div>
         `;
@@ -287,6 +321,7 @@ class ChatbotUI {
 
         const text = (this.input.value || '').trim();
         if (!text) return;
+        this.lastQuery = text;
 
         // Clear welcome if present
         const welcome = this.messagesContainer.querySelector('.chatbot-welcome-wrapper');
@@ -305,11 +340,13 @@ class ChatbotUI {
         // Process
         this.isProcessing = true;
         this.sendBtn.disabled = true;
+        this.messagesContainer.setAttribute('aria-busy', 'true');
         const typingEl = this.showTyping();
 
         try {
             const response = await this.processQuery(text);
             this.removeTyping(typingEl);
+            this.messagesContainer.setAttribute('aria-busy', 'false');
             await this.addBotMessageAnimated(response.answer, response.source);
         } catch (error) {
             this.removeTyping(typingEl);
@@ -324,6 +361,8 @@ class ChatbotUI {
 
         this.isProcessing = false;
         this.sendBtn.disabled = false;
+        this.messagesContainer.setAttribute('aria-busy', 'false');
+        this.updateServiceStatus();
         this.saveHistory();
     }
 
@@ -557,15 +596,15 @@ class ChatbotUI {
         if (role === 'user') {
             msgDiv.innerHTML = `
                 <div class="msg-bubble">
-                    ${this.escapeHtml(text)}
+                    <div class="msg-text-content">${this.escapeHtml(text)}</div>
                     <span class="msg-time">${timeStr}</span>
                 </div>
             `;
         } else {
             msgDiv.innerHTML = `
-                <div class="msg-avatar"><i class="fas fa-university"></i></div>
+                <div class="msg-avatar" aria-hidden="true"><img src="assets/gpa-assistant-mark.svg" alt=""></div>
                 <div class="msg-bubble">
-                    ${this.formatMarkdown(text)}
+                    <div class="msg-text-content">${this.formatMarkdown(text)}</div>
                     <span class="msg-time">${timeStr}</span>
                 </div>
             `;
@@ -583,10 +622,10 @@ class ChatbotUI {
         const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
         msgDiv.innerHTML = `
-            <div class="msg-avatar"><i class="fas fa-university"></i></div>
+            <div class="msg-avatar" aria-hidden="true"><img src="assets/gpa-assistant-mark.svg" alt=""></div>
             <div class="msg-bubble">
                 <div class="msg-text-content"></div>
-                <span class="msg-time">${timeStr}</span>
+                <div class="msg-footer"><span class="msg-time">${timeStr}</span><button class="msg-copy" type="button" aria-label="Copy answer"><i class="far fa-copy" aria-hidden="true"></i><span>Copy</span></button></div>
             </div>
         `;
 
@@ -597,27 +636,22 @@ class ChatbotUI {
         this.scrollToBottom();
     }
 
-    async streamText(container, text) {
-        const formatted = this.formatMarkdown(text);
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = formatted;
-
-        const fullText = tempDiv.innerHTML;
-        let current = '';
-        const speed = CHATBOT_CONFIG.TYPING_SPEED;
-        const chunkSize = 3;
-
-        for (let i = 0; i < fullText.length; i += chunkSize) {
-            current += fullText.substring(i, i + chunkSize);
-            container.innerHTML = current;
-            this.scrollToBottom();
-
-            if (fullText[i] !== '<') {
-                await new Promise(r => setTimeout(r, speed));
-            }
+    async copyAnswer(button) {
+        const text = button.closest('.msg-bubble').querySelector('.msg-text-content').textContent;
+        const label = button.querySelector('span');
+        try {
+            await navigator.clipboard.writeText(text);
+            label.textContent = 'Copied';
+            button.setAttribute('aria-label', 'Answer copied');
+        } catch (_) {
+            label.textContent = 'Select text to copy';
         }
+        setTimeout(() => { label.textContent = 'Copy'; button.setAttribute('aria-label', 'Copy answer'); }, 2200);
+    }
 
-        container.innerHTML = formatted;
+    async streamText(container, text) {
+        // Render the complete answer once: readable formatting and one screen-reader update.
+        container.innerHTML = this.formatMarkdown(text);
     }
 
     // ─── Typing Indicator ───
@@ -625,11 +659,12 @@ class ChatbotUI {
         const typingDiv = document.createElement('div');
         typingDiv.className = 'chatbot-typing';
         typingDiv.id = 'chatbotTyping';
+        typingDiv.setAttribute('role', 'status');
 
         typingDiv.innerHTML = `
-            <div class="msg-avatar"><i class="fas fa-university"></i></div>
+            <div class="msg-avatar" aria-hidden="true"><img src="assets/gpa-assistant-mark.svg" alt=""></div>
             <div class="typing-dots">
-                <span></span><span></span><span></span>
+                <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><small>Finding an answer…</small>
             </div>
         `;
 
@@ -651,17 +686,18 @@ class ChatbotUI {
     showError(message) {
         const errorDiv = document.createElement('div');
         errorDiv.className = 'chatbot-error';
-        errorDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${this.escapeHtml(message)}`;
+        errorDiv.setAttribute('role', 'alert');
+        errorDiv.innerHTML = `<i class="fas fa-exclamation-circle" aria-hidden="true"></i><div><strong>Let’s try that again</strong><p>${this.escapeHtml(message)}</p><button type="button" class="chatbot-retry">Retry question <span aria-hidden="true">↗</span></button></div>`;
+        const query = this.lastQuery;
+        errorDiv.querySelector('button').addEventListener('click', () => {
+            if (this.isProcessing) return;
+            errorDiv.remove();
+            this.input.value = query || '';
+            this.handleSend();
+        });
         this.messagesContainer.appendChild(errorDiv);
         this.scrollToBottom();
 
-        setTimeout(() => {
-            if (errorDiv.parentNode) {
-                errorDiv.style.opacity = '0';
-                errorDiv.style.transition = 'opacity 0.3s ease';
-                setTimeout(() => errorDiv.remove(), 300);
-            }
-        }, 8000);
     }
 
     // ─── Helpers ───
@@ -676,7 +712,8 @@ class ChatbotUI {
     autoResizeInput() {
         if (!this.input) return;
         this.input.style.height = 'auto';
-        this.input.style.height = Math.min(this.input.scrollHeight, 100) + 'px';
+        this.input.style.height = Math.min(this.input.scrollHeight + 2, 100) + 'px';
+        this.input.style.overflowY = this.input.scrollHeight > 100 ? 'auto' : 'hidden';
     }
 
     escapeHtml(text) {
@@ -719,6 +756,7 @@ class ChatbotUI {
     }
 
     clearChat() {
+        if (this.isProcessing) return;
         if (this.messagesContainer) {
             this.messagesContainer.innerHTML = '';
         }
@@ -732,7 +770,7 @@ class ChatbotUI {
             const messages = [];
             this.messagesContainer.querySelectorAll('.chatbot-msg').forEach(msg => {
                 const role = msg.classList.contains('user') ? 'user' : 'bot';
-                const text = msg.querySelector('.msg-bubble')?.textContent?.trim() || '';
+                const text = msg.querySelector('.msg-text-content')?.textContent?.trim() || '';
                 if (text) messages.push({ role, text: text.substring(0, 300) });
             });
             const toStore = messages.slice(-20);

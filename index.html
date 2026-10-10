@@ -25,7 +25,7 @@
     <link rel="stylesheet" href="style.css">
 
     <!-- Chatbot Styles -->
-    <link rel="stylesheet" href="chatbot.css">
+    <link rel="stylesheet" href="chatbot.css?v=20261010-design">
 </head>
 
 <body>
@@ -466,50 +466,56 @@
     <script src="app.js"></script>
 
     <!-- ─── CHATBOT WIDGET ─── -->
-    <div class="chatbot-overlay" id="chatbotOverlay"></div>
+    <div class="chatbot-overlay" id="chatbotOverlay" aria-hidden="true"></div>
 
     <!-- Chatbot Trigger Button -->
-    <button class="chatbot-trigger" id="chatbotTrigger" aria-label="Open GPA Assistant chatbot">
-        <span class="trigger-icon"><i class="fas fa-comment-dots"></i></span>
-        <span class="trigger-close"><i class="fas fa-times"></i></span>
+    <button class="chatbot-trigger" id="chatbotTrigger" aria-label="Open GPA Assistant chatbot" aria-controls="chatbotWindow" aria-expanded="false">
+        <span class="trigger-icon"><img src="assets/gpa-assistant-mark-light.svg" alt="" width="36" height="36"></span>
+        <span class="trigger-label">Ask GPA</span>
+        <span class="trigger-close" aria-hidden="true"><i class="fas fa-times"></i></span>
         <span class="chatbot-badge" id="chatbotBadge" style="display:none;">1</span>
     </button>
 
     <!-- Chatbot Window -->
-    <div class="chatbot-window" id="chatbotWindow" role="dialog" aria-label="GPA Assistant Chat">
+    <div class="chatbot-window" id="chatbotWindow" role="dialog" aria-labelledby="chatbotTitle" aria-modal="true" inert>
         <!-- Header -->
         <div class="chatbot-header">
             <div class="chatbot-header-avatar">
-                <i class="fas fa-university"></i>
+                <img src="assets/gpa-assistant-mark.svg" alt="" width="44" height="44">
             </div>
             <div class="chatbot-header-info">
-                <div class="chatbot-header-title">GPA Assistant</div>
-                <div class="chatbot-header-status">
-                    <span class="chatbot-status-dot"></span> Online · AI Powered
-                </div>
+                <div class="chatbot-header-college">Government Polytechnic Adityapur</div>
+                <h2 class="chatbot-header-title" id="chatbotTitle">GPA Assistant</h2>
             </div>
             <div class="chatbot-header-actions">
                 <button class="chatbot-header-btn admin-btn" id="chatbotAdminBtn" aria-label="Admin Portal" title="Admin Portal">
                     <i class="fas fa-lock"></i>
                 </button>
-                <button class="chatbot-header-btn" id="chatbotClearBtn" aria-label="Clear chat" title="Clear Chat">
-                    <i class="fas fa-eraser"></i>
+                <button class="chatbot-header-btn" id="chatbotClearBtn" aria-label="Start a new chat" title="New chat">
+                    <i class="fas fa-pen-to-square"></i>
                 </button>
                 <button class="chatbot-header-btn" id="chatbotCloseBtn" aria-label="Close chat" title="Close">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
         </div>
+        <div class="chatbot-context-bar">
+            <span class="chatbot-header-status" id="chatbotServiceStatus" role="status" aria-live="polite">
+                <span class="chatbot-status-dot"></span><span id="chatbotStatusText">Checking connection</span>
+            </span>
+            <a class="chatbot-context-label" href="https://www.gpa.ac.in/" target="_blank" rel="noopener">College website <span aria-hidden="true">↗</span></a>
+        </div>
 
         <!-- Messages -->
-        <div class="chatbot-messages" id="chatbotMessages">
+        <div class="chatbot-messages" id="chatbotMessages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
             <!-- Messages rendered by JS -->
         </div>
 
         <!-- Input Bar -->
         <div class="chatbot-input-bar">
             <div class="chatbot-input-wrapper">
-                <textarea class="chatbot-input" id="chatbotInput" placeholder="Ask about GPA, placements, syllabus..." rows="1"></textarea>
+                <label class="chatbot-sr-only" for="chatbotInput">Your question for GPA Assistant</label>
+                <textarea class="chatbot-input" id="chatbotInput" placeholder="Ask about a notice or college info…" rows="1" maxlength="3000" aria-describedby="chatbotInputHint"></textarea>
                 <button class="chatbot-send-btn" id="chatbotSendBtn" aria-label="Send message">
                     <i class="fas fa-paper-plane"></i>
                 </button>
@@ -518,12 +524,13 @@
 
         <!-- Footer -->
         <div class="chatbot-powered">
-            GPA Assistant · Knowledge Base Enhanced
+            <span id="chatbotInputHint">English or हिन्दी</span>
+            <span class="chatbot-keyboard-hint">Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span>
         </div>
     </div>
 
     <!-- Chatbot Script -->
-    <script src="chatbot.js?v=20261010-pool"></script>
+    <script src="chatbot.js?v=20261010-design"></script>
 </body>
 
 </html>
