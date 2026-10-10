@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function chatbot() {
+function chatbot(fetchImpl) {
     const source = fs.readFileSync('chatbot.js', 'utf8').replace('const gpaChatbot = new ChatbotUI();', 'globalThis.TestChatbot = ChatbotUI;');
-    const context = vm.createContext({ localStorage: { getItem: () => null }, console, setTimeout, clearTimeout, AbortController });
+    const context = vm.createContext({ localStorage: { getItem: () => null }, console, setTimeout, clearTimeout, AbortController, fetch: fetchImpl });
     vm.runInContext(source, context);
     const bot = Object.create(context.TestChatbot.prototype);
     bot.callLLM = () => { throw new Error('General LLM must not be called'); };
@@ -23,6 +23,17 @@ test('backend errors never switch to general knowledge', async () => {
     const bot = chatbot();
     bot._callRAGBackend = async () => { throw new Error('Timeout'); };
     await assert.rejects(bot.processQuery('Deadline?'), /could not check/);
+});
+
+test('old backend API key error is shown as a configuration failure', async () => {
+    const bot = chatbot(async () => Response.json({ error: '400 INVALID_ARGUMENT: API key not valid. API_KEY_INVALID' }, { status: 500 }));
+    await assert.rejects(bot.processQuery('Deadline?'), /API key is missing or invalid/);
+    assert.equal(bot.ragAvailable, true);
+});
+
+test('structured provider error is preserved', async () => {
+    const bot = chatbot(async () => Response.json({ code: 'PROVIDER_QUOTA_ERROR', error: 'Provider quota exceeded; please retry later.' }, { status: 503 }));
+    await assert.rejects(bot.processQuery('Deadline?'), /Provider quota exceeded/);
 });
 
 test('web and no-answer decisions are preserved', async () => {

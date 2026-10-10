@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'rag_backend'))
 from answer_policy import parse_kb_decision
+from backend_errors import describe_query_error
 
 # Load the actual routing module with provider SDK stand-ins.
 requests = ModuleType('requests')
@@ -26,6 +27,16 @@ with patch.dict(sys.modules, {'requests': requests, 'google': google, 'google.ge
 
 
 class RoutingTests(unittest.TestCase):
+    def test_authentication_error_is_actionable_without_raw_payload(self):
+        payload, status = describe_query_error(ValueError('400 INVALID_ARGUMENT: API_KEY_INVALID sensitive provider payload'))
+        self.assertEqual(status, 503)
+        self.assertEqual(payload['code'], 'PROVIDER_AUTH_ERROR')
+        self.assertNotIn('sensitive', payload['error'])
+
+    def test_provider_quota_and_timeout_have_distinct_errors(self):
+        self.assertEqual(describe_query_error(Exception('429 RESOURCE_EXHAUSTED'))[0]['code'], 'PROVIDER_QUOTA_ERROR')
+        self.assertEqual(describe_query_error(Exception('Request timed out'))[1], 504)
+
     def setUp(self):
         self.doc = SimpleNamespace(page_content='Exam registration closes 14 October 2026.',
                                    metadata={'subject': 'Exam notice', 'filename': 'exam.pdf'})

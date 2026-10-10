@@ -22,6 +22,7 @@ import requests
 import hashlib
 from threading import RLock
 from werkzeug.utils import secure_filename
+from backend_errors import describe_query_error
 from pathlib import Path
 from typing import List, Optional
 
@@ -54,7 +55,7 @@ log = logging.getLogger('GPA-RAG')
 # ┌──────────────────────────────────────────────────────────┐
 # │  🔑  Place your Gemini API Key here or set env var       │
 # └──────────────────────────────────────────────────────────┘
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'YOUR_GOOGLE_KEY_HERE')
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY') or os.getenv('GEMINI_API_KEY') or 'YOUR_GOOGLE_KEY_HERE'
 os.environ['GOOGLE_API_KEY'] = GOOGLE_API_KEY
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', 'YOUR_OPENROUTER_KEY_HERE')
 OPENROUTER_MODEL = 'meta-llama/llama-3.3-70b-instruct'
@@ -612,7 +613,8 @@ def rag_query():
     except Exception as e:
         log.error(f'❌ Query failed: {e}')
         log.debug(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        payload, status = describe_query_error(e)
+        return jsonify(payload), status
 
 
 @app.route('/api/rag/ingest', methods=['POST'])

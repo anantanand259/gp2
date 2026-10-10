@@ -314,9 +314,9 @@ class ChatbotUI {
         } catch (error) {
             this.removeTyping(typingEl);
             let msg = error.message || 'Something went wrong. Please try again.';
-            if (msg.includes('quota') || msg.includes('429') || msg.includes('rate')) {
+            if (!error.backendReached && (msg.includes('quota') || msg.includes('429') || msg.includes('rate'))) {
                 msg = 'The AI service is temporarily busy. Please wait a moment and try again.';
-            } else if (msg.includes('API key')) {
+            } else if (!error.backendReached && msg.includes('API key')) {
                 msg = 'API connection issue. Please try again shortly.';
             }
             this.showError(msg);
@@ -344,8 +344,9 @@ class ChatbotUI {
                 sources: result.sources || []
             };
         } catch (error) {
-            this.ragAvailable = false;
+            this.ragAvailable = error.backendReached === true;
             console.warn('[Chatbot] Knowledge base query failed:', error.message);
+            if (error.backendReached) throw error;
             throw new Error('I could not check the college knowledge base. Please try again when the backend is available.');
         }
     }
@@ -364,7 +365,16 @@ class ChatbotUI {
             });
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
-                throw new Error(err.error || `RAG error: ${response.status}`);
+                const rawMessage = typeof err.error === 'string' ? err.error : '';
+                let message = rawMessage || `Knowledge-base request failed (HTTP ${response.status}).`;
+                // Also recognize authentication errors from older running servers.
+                if (/api.?key.*(?:invalid|not valid)|API_KEY_INVALID|unauthorized|authentication/i.test(rawMessage)) {
+                    message = 'The knowledge base is reachable, but its AI provider API key is missing or invalid. Ask the administrator to update the backend key and restart the Python server.';
+                }
+                const error = new Error(message);
+                error.backendReached = true;
+                error.code = err.code || 'RAG_REQUEST_ERROR';
+                throw error;
             }
 
             return await response.json();

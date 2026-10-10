@@ -28,14 +28,18 @@ their previous backend chunks using `entry_id`.
 
 ## Run and publish
 
-1. Use a working Python installation. The current `.venv\Scripts\python.exe`
-   failed to launch in this workspace. From `C:\AI_ML\gp2`, create a fresh
-   environment (for example, `py -3.12 -m venv .venv-rag`) and run
-   `.\.venv-rag\Scripts\python.exe -m pip install -r requirements.txt`.
-2. Set `GOOGLE_API_KEY` and `OPENROUTER_API_KEY` in the root `.env` file.
+1. From `C:\AI_ML\gp2`, use the existing `.venv\Scripts\python.exe`.
+   This environment and its backend dependencies were verified outside the
+   Codex sandbox. Install updates with
+   `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
+2. Copy `.env.example` to `.env` and replace the placeholders with valid
+   `GOOGLE_API_KEY` and `OPENROUTER_API_KEY` values. `GEMINI_API_KEY` is also
+   accepted as an alias for `GOOGLE_API_KEY` when the latter is unset.
+   These are Python backend credentials; Worker secrets are a separate configuration.
    Gemini access is required for scanned documents, provider fallback and web
    search. Set `NGROK_AUTH_TOKEN` if exposing your local server using ngrok.
-3. Start the server with `.\.venv-rag\Scripts\python.exe rag_backend\server.py`.
+3. Restart the server with `.\.venv\Scripts\python.exe rag_backend\server.py`
+   after changing keys, or use `rag_backend\start_server.bat`.
    Keep your existing `rag_backend\knowledge_base` directory; no reset is needed.
 4. For GitHub Pages, expose the server through a reachable HTTPS tunnel.
    Cloudflare cannot reach `localhost` on your computer. Set its current URL with
@@ -43,7 +47,7 @@ their previous backend chunks using `entry_id`.
    `OPENROUTER_API_KEY` and `GEMINI_API_KEY` secrets if needed.
 5. Run `npm ci`, then `npm run deploy` to publish the Worker changes.
    Publish the modified static files through your normal GitHub Pages deployment.
-   These code changes have not been deployed by this task.
+   Pushing to GitHub does not deploy the Cloudflare Worker or restart Python.
 6. In Admin, set the backend URL to the Worker URL (or directly to the HTTPS
    Python tunnel) and use **Test Connection**. It must report a ready retriever.
 
@@ -55,6 +59,13 @@ The existing Delete/Clear buttons remove that browser view only; they do not
 delete server documents. This fix does not implement backend deletion.
 
 ## Validation
+
+On diagnosis, the public RAG endpoint returned HTTP 500 with Google's
+`API_KEY_INVALID` error. The local backend health reported zero indexed chunks.
+A listening backend does not establish that its provider keys work. Update its
+keys, restart it and ingest a notice before expecting KB answers. Provider
+authentication and quota errors are now returned as safe, actionable errors;
+the frontend preserves these instead of saying the backend is unreachable.
 
 Offline regression tests require Python's standard library and Node.js:
 
