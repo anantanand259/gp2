@@ -1,4 +1,5 @@
 import runpy
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -9,6 +10,20 @@ from deployment_config import allowed_origins, server_port, storage_base
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_render_startup_resolves_config_before_gunicorn_runs(self):
+        # Gunicorn resolves --config from its launch directory, before --chdir.
+        # Read the actual Blueprint command to catch the deployment regression.
+        line = next(line for line in (ROOT / 'render.yaml').read_text().splitlines()
+                    if line.strip().startswith('startCommand:'))
+        command = shlex.split(line.split(':', 1)[1].strip())
+        self.assertEqual(command[:3], ['cd', 'rag_backend', '&&'])
+        self.assertEqual(command[3], 'gunicorn')
+        launch_dir = ROOT / command[1]
+        config_path = launch_dir / command[command.index('--config') + 1]
+        self.assertTrue(config_path.is_file(), str(config_path))
+        self.assertTrue((launch_dir / 'server.py').is_file())
+        self.assertEqual(command[-1], 'server:app')
+
     def test_render_port_precedes_local_port(self):
         self.assertEqual(server_port({'PORT': '10000', 'RAG_PORT': '5000'}), 10000)
         self.assertEqual(server_port({'RAG_PORT': '5050'}), 5050)

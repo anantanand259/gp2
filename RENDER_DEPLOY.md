@@ -36,6 +36,12 @@ For manual **New > Web Service** setup, leave **Root Directory blank**, use
 Python, the free plan, and the build/start commands and env vars from `render.yaml`.
 The requirements file is at repository root, not inside `rag_backend`.
 
+The start command is `cd rag_backend && gunicorn --config gunicorn.conf.py server:app`.
+Changing directory in the shell before launching Gunicorn ensures the config
+file is found. Gunicorn's `--chdir` option alone does not resolve a config path
+relative to that destination directory. If an existing Blueprint has the old
+command, use **Manual sync** to apply the updated `render.yaml` before deploying.
+
 ## Free-plan limits
 
 Render free services sleep when idle and use an ephemeral filesystem. Uploaded

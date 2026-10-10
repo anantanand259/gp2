@@ -7,7 +7,7 @@ services:
     region: singapore
     branch: main
     buildCommand: pip install -r requirements-render.txt && python rag_backend/download_models.py
-    startCommand: gunicorn --chdir rag_backend --config gunicorn.conf.py server:app
+    startCommand: cd rag_backend && gunicorn --config gunicorn.conf.py server:app
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
