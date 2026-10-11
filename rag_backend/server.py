@@ -25,7 +25,7 @@ from werkzeug.utils import secure_filename
 from backend_errors import describe_query_error
 from llm_pool import LLMPool, configured_key
 from query_cache import QueryCache
-from deployment_config import storage_base, server_port, allowed_origins, embedding_filename
+from deployment_config import storage_base, server_port, allowed_origins, embedding_filename, retrieval_mode
 from pathlib import Path
 from typing import List, Optional
 
@@ -317,7 +317,9 @@ log.info('✅ Chunking module ready.')
 # EMBEDDING MODEL (BAAI/bge-m3 — multilingual)
 # ─────────────────────────────────────────────────────────────
 from langchain_core.embeddings import Embeddings
-import numpy as np
+RETRIEVAL_MODE = retrieval_mode(os.environ)
+if RETRIEVAL_MODE == 'hybrid':
+    import numpy as np
 
 class OnnxMiniLMEmbeddings(Embeddings):
     """
@@ -376,22 +378,32 @@ class OnnxMiniLMEmbeddings(Embeddings):
     def embed_query(self, text: str) -> List[float]:
         return self.embed_documents([text])[0]
 
-log.info('⏳ Loading embedding model (all-MiniLM-L6-v2 ONNX)...')
-embedding_model = OnnxMiniLMEmbeddings()
-log.info('✅ Embedding model loaded.')
+embedding_model = None
+if RETRIEVAL_MODE == 'hybrid':
+    log.info('⏳ Loading embedding model (all-MiniLM-L6-v2 ONNX)...')
+    embedding_model = OnnxMiniLMEmbeddings()
+    log.info('✅ Embedding model loaded.')
+else:
+    log.info('Using BM25 retrieval for the low-memory hosting profile.')
 
 # ─────────────────────────────────────────────────────────────
 # HYBRID RETRIEVAL SYSTEM (ChromaDB + BM25)
 # ─────────────────────────────────────────────────────────────
-from langchain_community.vectorstores import Chroma
 from langchain_community.retrievers import BM25Retriever
-try:
-    from langchain.retrievers import EnsembleRetriever
-except ImportError:
+if RETRIEVAL_MODE == 'hybrid':
+    from langchain_community.vectorstores import Chroma
     try:
-        from langchain_community.retrievers import EnsembleRetriever
+        from langchain.retrievers import EnsembleRetriever
     except ImportError:
-        from langchain_classic.retrievers import EnsembleRetriever
+        try:
+            from langchain_community.retrievers import EnsembleRetriever
+        except ImportError:
+            from langchain_classic.retrievers import EnsembleRetriever
+
+
+class EmptyRetriever:
+    def invoke(self, query):
+        return []
 
 def load_processed_log() -> list:
     if LOG_FILE.exists():
@@ -419,13 +431,6 @@ def save_bm25_docs(docs: list):
 
 def build_hybrid_retriever(new_documents: list, replace_entry_id=None):
     """Build or rebuild the hybrid retriever with optional new documents."""
-    vector_store = Chroma(
-        persist_directory=str(CHROMA_DIR),
-        embedding_function=embedding_model
-    )
-
-    semantic_retriever = vector_store.as_retriever(search_kwargs={'k': 12})
-
     # Merge BM25 docs
     existing_docs = load_bm25_docs()
     if replace_entry_id:
@@ -437,6 +442,18 @@ def build_hybrid_retriever(new_documents: list, replace_entry_id=None):
         identity = hashlib.sha256(json.dumps(doc, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         unique_docs[identity] = doc
     all_docs = list(unique_docs.values())
+    if RETRIEVAL_MODE == 'bm25':
+        retriever = BM25Retriever.from_documents([
+            Document(page_content=d['content'], metadata=d.get('metadata', {})) for d in all_docs
+        ]) if all_docs else EmptyRetriever()
+        if all_docs:
+            retriever.k = 12
+        save_bm25_docs(all_docs)
+        log.info('BM25 index ready: %s chunks.', len(all_docs))
+        return retriever
+
+    vector_store = Chroma(persist_directory=str(CHROMA_DIR), embedding_function=embedding_model)
+    semantic_retriever = vector_store.as_retriever(search_kwargs={'k': 12})
     # Restore missing IDs without embedding the entire KB on every rebuild.
     existing_ids = set(vector_store.get()['ids'])
     missing_ids = [identity for identity in unique_docs if identity not in existing_ids]
@@ -609,7 +626,8 @@ def health():
         'retriever_ready': hybrid_retriever is not None,
         'total_chunks': len(load_bm25_docs()),
         'total_documents': len(load_processed_log()),
-        'embedding': {'model': embedding_model.model_name, 'batch_size': embedding_model.batch_size},
+        'retrieval_mode': RETRIEVAL_MODE,
+        'embedding': {'model': embedding_model.model_name, 'batch_size': embedding_model.batch_size} if embedding_model else None,
         'llm': llm_pool.status()
     })
 

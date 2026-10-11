@@ -6,10 +6,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'rag_backend'))
-from deployment_config import allowed_origins, server_port, storage_base, embedding_filename
+from deployment_config import allowed_origins, server_port, storage_base, embedding_filename, retrieval_mode
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_render_default_does_not_load_native_vector_engines(self):
+        self.assertEqual(retrieval_mode({'RENDER': 'true'}), 'bm25')
+        self.assertEqual(retrieval_mode({}), 'hybrid')
+        self.assertEqual(retrieval_mode({'RENDER': 'true', 'RAG_RETRIEVAL_MODE': 'hybrid'}), 'hybrid')
+        with self.assertRaises(ValueError):
+            retrieval_mode({'RAG_RETRIEVAL_MODE': 'invalid'})
     def test_render_uses_small_model_even_before_blueprint_env_sync(self):
         self.assertEqual(embedding_filename({'RENDER': 'true'}), 'model_quint8_avx2.onnx')
         self.assertEqual(embedding_filename({}), 'model.onnx')

@@ -18,6 +18,13 @@ def embedding_filename(environ):
     return environ.get('RAG_ONNX_MODEL') or default
 
 
+def retrieval_mode(environ):
+    mode = environ.get('RAG_RETRIEVAL_MODE') or ('bm25' if environ.get('RENDER') == 'true' else 'hybrid')
+    if mode not in ('bm25', 'hybrid'):
+        raise ValueError('RAG_RETRIEVAL_MODE must be bm25 or hybrid')
+    return mode
+
+
 def allowed_origins(environ, defaults):
     configured = environ.get('RAG_ALLOWED_ORIGINS')
     return [value.strip() for value in configured.split(',') if value.strip()] if configured else defaults

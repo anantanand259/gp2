@@ -6,11 +6,15 @@ importing the server or accessing your local knowledge base. Secrets and private
 documents are not in Git. The lightweight requirements exclude unused PyTorch
 and sentence-transformers dependencies.
 
-The free profile uses the publisher's 23 MB quantized MiniLM ONNX model,
-small embedding batches, dynamic token padding and no retained ONNX CPU arena.
-Existing vector IDs are reused rather than embedding the full KB on each upload.
-Local servers keep the original model by default. Apply new Blueprint env vars
-with **Manual sync**, which also rebuilds the cached model.
+The free profile uses BM25 retrieval without loading Chroma or an ONNX model.
+The LLM still checks retrieved context and the remaining KB before web fallback.
+This reduces local model memory and native indexing work. BM25 ranks lexical
+matches; semantic vector ranking remains available on local servers (default)
+or by setting `RAG_RETRIEVAL_MODE=hybrid` on a sufficiently provisioned host.
+Hybrid mode uses small embedding batches, dynamic token padding and incremental
+vector indexing. On Render it selects the publisher's 23 MB quantized model.
+Apply Blueprint env vars with **Manual sync**. Render defaults to BM25 even
+before that sync unless you explicitly override the retrieval mode.
 
 ## Deploy
 

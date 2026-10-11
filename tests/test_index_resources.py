@@ -39,7 +39,7 @@ class ResourceTests(unittest.TestCase):
         store = Mock()
         store.get.return_value = {'ids': [old_id]}
         lexical = Mock()
-        namespace = {'Chroma': Mock(return_value=store), 'CHROMA_DIR': Path('/test'),
+        namespace = {'RETRIEVAL_MODE': 'hybrid', 'Chroma': Mock(return_value=store), 'CHROMA_DIR': Path('/test'),
                      'embedding_model': Mock(), 'load_bm25_docs': lambda: [stored],
                      'save_bm25_docs': Mock(), 'Document': lambda **kw: SimpleNamespace(**kw),
                      'hashlib': hashlib, 'json': json, 'log': Mock(),
@@ -52,6 +52,24 @@ class ResourceTests(unittest.TestCase):
         added = store.add_documents.call_args.args[0]
         self.assertEqual([doc.page_content for doc in added], ['New notice'])
         self.assertEqual(len(store.add_documents.call_args.kwargs['ids']), 1)
+
+    def test_low_memory_profile_indexes_without_vectors(self):
+        saved = Mock()
+        lexical = Mock()
+        vector = Mock(side_effect=AssertionError('No vector model on free profile'))
+        namespace = {'RETRIEVAL_MODE': 'bm25', 'Chroma': vector,
+                     'load_bm25_docs': lambda: [], 'save_bm25_docs': saved,
+                     'Document': lambda **kw: SimpleNamespace(**kw), 'hashlib': hashlib,
+                     'json': json, 'log': Mock(),
+                     'EmptyRetriever': lambda: SimpleNamespace(invoke=lambda q: []),
+                     'BM25Retriever': SimpleNamespace(from_documents=Mock(return_value=lexical))}
+        rebuild = load_function('build_hybrid_retriever', namespace)
+        self.assertEqual(rebuild([]).invoke('query'), [])
+        result = rebuild([SimpleNamespace(page_content='Notice deadline Thursday', metadata={'filename': 'notice.txt'})])
+        self.assertIs(result, lexical)
+        self.assertEqual(result.k, 12)
+        self.assertEqual(saved.call_args.args[0][0]['metadata']['filename'], 'notice.txt')
+        vector.assert_not_called()
 
 
 if __name__ == '__main__':
