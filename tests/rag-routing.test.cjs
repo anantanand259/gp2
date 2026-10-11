@@ -117,3 +117,40 @@ test('Render temporary non-JSON failure gives a retryable hosting message', asyn
         assert.match(body.error, /Render/);
     } finally { global.fetch = originalFetch; }
 });
+
+function adminUploadContext(fetchImpl) {
+    const html = fs.readFileSync('admin.html', 'utf8');
+    const start = html.indexOf('async function waitForUploadBackend(');
+    const end = html.indexOf('// ── Clear All', start);
+    const alerts = [];
+    const context = vm.createContext({fetch: fetchImpl, AbortController, setTimeout, clearTimeout,
+        Date, TypeError, FormData, console, RAG_BACKEND_URL: 'https://proxy.test',
+        showLoading() {}, hideLoading() {}, showAlert: text => alerts.push(text)});
+    vm.runInContext(html.slice(start, end), context);
+    return {context, alerts};
+}
+
+test('upload readiness retries only health until Render is ready', async () => {
+    let requests = 0;
+    const {context} = adminUploadContext(async url => {
+        assert.equal(url, 'https://proxy.test/api/health');
+        return ++requests === 1 ? Response.json({error: 'Starting'}, {status: 503})
+            : Response.json({retriever_ready: true});
+    });
+    await context.waitForUploadBackend({timeoutMs: 1000, retryMs: 0});
+    assert.equal(requests, 2);
+});
+
+test('no upload is sent if backend readiness fails', async () => {
+    let sent = false;
+    const {context, alerts} = adminUploadContext(async () => {sent = true;});
+    context.waitForUploadBackend = async () => {throw new Error('Backend unavailable');};
+    await context.uploadFileToBackend({target: {files: [new Blob(['Test notice'])], value: 'selected'}});
+    assert.equal(sent, false);
+    assert.match(alerts[0], /Backend unavailable/);
+});
+
+test('readiness deadline reports that no file was sent', async () => {
+    const {context} = adminUploadContext(() => {throw new Error('Should not fetch');});
+    await assert.rejects(context.waitForUploadBackend({timeoutMs: 0}), /No file was sent/);
+});

@@ -1232,6 +1232,32 @@
             showAlert('Knowledge base exported!', 'success');
         }
 
+        async function waitForUploadBackend({ timeoutMs = 90000, retryMs = 5000 } = {}) {
+            const deadline = Date.now() + timeoutMs;
+            while (Date.now() < deadline) {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), Math.min(15000, deadline - Date.now()));
+                try {
+                    const response = await fetch(`${RAG_BACKEND_URL}/api/health`, {
+                        signal: controller.signal, cache: 'no-store'
+                    });
+                    const data = await response.json().catch(() => null);
+                    if (response.ok && data?.retriever_ready === true) return;
+                    if (![502, 503, 504].includes(response.status)) {
+                        throw new Error(data?.error || 'The backend search index is not ready. Check Render logs.');
+                    }
+                } catch (error) {
+                    if (error.name !== 'AbortError' && !(error instanceof TypeError)) throw error;
+                } finally {
+                    clearTimeout(timer);
+                }
+                if (Date.now() < deadline) {
+                    await new Promise(resolve => setTimeout(resolve, Math.min(retryMs, deadline - Date.now())));
+                }
+            }
+            throw new Error('Render did not become ready within 90 seconds. No file was sent. Check the service logs and retry when it is healthy.');
+        }
+
         async function uploadFileToBackend(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1243,12 +1269,16 @@
     }
 
     const url = `${RAG_BACKEND_URL}/api/rag/ingest`;
-    showLoading(`Uploading and processing ${file.name}...`);
+    showLoading('Checking backend readiness. Render may need time to wake up...');
 
     const formData = new FormData();
     formData.append('file', file);
 
     try {
+        // Only retry safe health checks. Never automatically repeat an upload:
+        // a dropped response can occur after the file was already indexed.
+        await waitForUploadBackend();
+        showLoading(`Uploading and processing ${file.name}...`);
         const response = await fetch(url, { method: 'POST', body: formData });
 
         // Read as text first, then try to parse JSON
