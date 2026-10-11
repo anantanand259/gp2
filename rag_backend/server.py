@@ -25,7 +25,7 @@ from werkzeug.utils import secure_filename
 from backend_errors import describe_query_error
 from llm_pool import LLMPool, configured_key
 from query_cache import QueryCache
-from deployment_config import storage_base, server_port, allowed_origins
+from deployment_config import storage_base, server_port, allowed_origins, embedding_filename
 from pathlib import Path
 from typing import List, Optional
 
@@ -330,21 +330,31 @@ class OnnxMiniLMEmbeddings(Embeddings):
         from tokenizers import Tokenizer
         from huggingface_hub import hf_hub_download
 
-        model_path = hf_hub_download('sentence-transformers/all-MiniLM-L6-v2', subfolder='onnx', filename='model.onnx')
+        model_name = embedding_filename(os.environ)
+        self.model_name = model_name
+        log.info('Loading embedding file %s', model_name)
+        model_path = hf_hub_download('sentence-transformers/all-MiniLM-L6-v2', subfolder='onnx', filename=model_name)
         tokenizer_path = hf_hub_download('sentence-transformers/all-MiniLM-L6-v2', filename='tokenizer.json')
 
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
         self.tokenizer.enable_truncation(max_length=256)
-        self.tokenizer.enable_padding(length=256)
+        # Pad only to the longest item in this small batch, not 256 tokens.
+        self.tokenizer.enable_padding()
+        self.batch_size = max(1, int(os.getenv('RAG_EMBED_BATCH_SIZE', '2')))
         options = ort.SessionOptions()
         options.intra_op_num_threads = int(os.getenv('ONNX_NUM_THREADS', '1'))
         options.inter_op_num_threads = 1
+        options.enable_cpu_mem_arena = False
+        options.enable_mem_pattern = False
         self.session = ort.InferenceSession(model_path, sess_options=options, providers=['CPUExecutionProvider'])
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-        encodings = [self.tokenizer.encode(t) for t in texts]
+        if len(texts) > self.batch_size:
+            return [vector for start in range(0, len(texts), self.batch_size)
+                    for vector in self.embed_documents(texts[start:start + self.batch_size])]
+        encodings = self.tokenizer.encode_batch(texts)
         input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
         attention_mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
         token_type_ids = np.array([e.type_ids for e in encodings], dtype=np.int64)
@@ -427,12 +437,16 @@ def build_hybrid_retriever(new_documents: list, replace_entry_id=None):
         identity = hashlib.sha256(json.dumps(doc, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         unique_docs[identity] = doc
     all_docs = list(unique_docs.values())
-    if all_docs:
-        # Stable IDs make retries safe and restore vector data from the lexical
-        # index if an earlier upload only populated one of the two stores.
+    # Restore missing IDs without embedding the entire KB on every rebuild.
+    existing_ids = set(vector_store.get()['ids'])
+    missing_ids = [identity for identity in unique_docs if identity not in existing_ids]
+    if missing_ids:
+        log.info('Indexing %s new chunks in bounded embedding batches.', len(missing_ids))
         vector_store.add_documents([
-            Document(page_content=d['content'], metadata=d['metadata']) for d in all_docs
-        ], ids=list(unique_docs))
+            Document(page_content=unique_docs[identity]['content'], metadata=unique_docs[identity]['metadata'])
+            for identity in missing_ids
+        ], ids=missing_ids)
+        log.info('Vector indexing completed.')
     if replace_entry_id:
         old_ids = vector_store.get(where={'entry_id': replace_entry_id})['ids']
         obsolete = [doc_id for doc_id in old_ids if doc_id not in unique_docs]
@@ -595,6 +609,7 @@ def health():
         'retriever_ready': hybrid_retriever is not None,
         'total_chunks': len(load_bm25_docs()),
         'total_documents': len(load_processed_log()),
+        'embedding': {'model': embedding_model.model_name, 'batch_size': embedding_model.batch_size},
         'llm': llm_pool.status()
     })
 

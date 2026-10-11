@@ -6,10 +6,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'rag_backend'))
-from deployment_config import allowed_origins, server_port, storage_base
+from deployment_config import allowed_origins, server_port, storage_base, embedding_filename
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_render_uses_small_model_even_before_blueprint_env_sync(self):
+        self.assertEqual(embedding_filename({'RENDER': 'true'}), 'model_quint8_avx2.onnx')
+        self.assertEqual(embedding_filename({}), 'model.onnx')
+        self.assertEqual(embedding_filename({'RENDER': 'true', 'RAG_ONNX_MODEL': 'custom.onnx'}), 'custom.onnx')
+
     def test_render_startup_resolves_config_before_gunicorn_runs(self):
         # Gunicorn resolves --config from its launch directory, before --chdir.
         # Read the actual Blueprint command to catch the deployment regression.

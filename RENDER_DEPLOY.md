@@ -6,6 +6,12 @@ importing the server or accessing your local knowledge base. Secrets and private
 documents are not in Git. The lightweight requirements exclude unused PyTorch
 and sentence-transformers dependencies.
 
+The free profile uses the publisher's 23 MB quantized MiniLM ONNX model,
+small embedding batches, dynamic token padding and no retained ONNX CPU arena.
+Existing vector IDs are reused rather than embedding the full KB on each upload.
+Local servers keep the original model by default. Apply new Blueprint env vars
+with **Manual sync**, which also rebuilds the cached model.
+
 ## Deploy
 
 1. Sign in at https://dashboard.render.com/ and select **New > Blueprint**.

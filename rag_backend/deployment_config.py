@@ -13,6 +13,11 @@ def server_port(environ):
     return int(environ.get('PORT') or environ.get('RAG_PORT') or 5000)
 
 
+def embedding_filename(environ):
+    default = 'model_quint8_avx2.onnx' if environ.get('RENDER') == 'true' else 'model.onnx'
+    return environ.get('RAG_ONNX_MODEL') or default
+
+
 def allowed_origins(environ, defaults):
     configured = environ.get('RAG_ALLOWED_ORIGINS')
     return [value.strip() for value in configured.split(',') if value.strip()] if configured else defaults

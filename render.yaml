@@ -18,6 +18,10 @@ services:
         value: /opt/render/project/src/.cache/huggingface
       - key: ONNX_NUM_THREADS
         value: "1"
+      - key: RAG_ONNX_MODEL
+        value: model_quint8_avx2.onnx
+      - key: RAG_EMBED_BATCH_SIZE
+        value: "2"
       - key: RAG_INGEST_ON_STARTUP
         value: "0"
       - key: RAG_ALLOWED_ORIGINS
